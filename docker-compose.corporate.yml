@@ -1,0 +1,26 @@
+# Corporate network override — use instead of plain 'docker compose up -d'.
+#
+# Mounts the host's system CA certificate bundle into the API container so
+# it can download HuggingFace models through a TLS-intercepting proxy without
+# needing TRANSFORMERS_OFFLINE=1 or pre-downloaded models.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.corporate.yml up -d
+#   OR: make up-corporate
+#
+# Requires SYSTEM_CA_BUNDLE to be set in .env (see .env.example).
+# Common paths:
+#   Fedora / RHEL:    /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+#   Ubuntu / Debian:  /etc/ssl/certs/ca-certificates.crt
+#   macOS (Homebrew): /etc/ssl/cert.pem
+
+services:
+  api:
+    environment:
+      # Point Python's ssl module, requests, and httpx to the mounted CA bundle.
+      # This allows huggingface_hub (which uses httpx) to download models
+      # through a TLS-intercepting corporate proxy.
+      REQUESTS_CA_BUNDLE: /etc/ssl/certs/corporate-ca.pem
+      SSL_CERT_FILE: /etc/ssl/certs/corporate-ca.pem
+    volumes:
+      - ${SYSTEM_CA_BUNDLE}:/etc/ssl/certs/corporate-ca.pem:ro

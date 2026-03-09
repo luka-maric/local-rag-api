@@ -1,0 +1,52 @@
+Highlights in Retrieval-Augmented Generation and Transformer Architecture
+
+This document summarises the core contributions of two foundational papers in modern NLP.
+It is intended as a quick-reference companion to the full papers.
+
+
+THE TRANSFORMER ARCHITECTURE
+=============================
+
+Source: "Attention Is All You Need", Vaswani et al., Google Brain, 2017.
+
+Abstract (verbatim):
+The dominant sequence transduction models are based on complex recurrent or convolutional neural networks that include an encoder and a decoder. The best performing models also connect the encoder and decoder through an attention mechanism. We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely. Experiments on two machine translation tasks show these models to be superior in quality while being more parallelizable and requiring significantly less time to train.
+
+Key contributions:
+
+Multi-Head Attention allows the model to jointly attend to information from different representation subspaces at different positions. With a single attention head, averaging inhibits this. The Transformer uses h = 8 parallel attention heads. For each head, the dimensionality of keys and values is d_k = d_v = d_model / h = 64.
+
+Positional Encoding is added to the input embeddings to give the model information about the relative or absolute position of tokens in the sequence. The authors use sine and cosine functions of different frequencies.
+
+The encoder is composed of a stack of N = 6 identical layers. Each layer has two sub-layers: a multi-head self-attention mechanism, and a position-wise fully connected feed-forward network.
+
+Training was performed on the WMT 2014 English-German dataset consisting of about 4.5 million sentence pairs. The Transformer achieved 28.4 BLEU on this task, improving over the existing best results by over 2 BLEU.
+
+
+RETRIEVAL-AUGMENTED GENERATION
+================================
+
+Source: "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks", Lewis et al., Facebook AI Research, University College London, New York University, 2020.
+
+Abstract (verbatim):
+Large pre-trained language models have been shown to store factual knowledge in their parameters, and achieve state-of-the-art results when fine-tuned on downstream NLP tasks. However, their ability to access and precisely manipulate knowledge is still limited, and hence on knowledge-intensive tasks, their performance lags behind task-specific architectures. Additionally, providing provenance for their decisions and updating their world knowledge remain open research problems. We explore a general-purpose fine-tuning recipe for retrieval-augmented generation (RAG) -- models which combine pre-trained parametric and non-parametric memory for language generation. We instantiate RAG models where the parametric memory is a pre-trained seq2seq model and the non-parametric memory is a dense vector index of Wikipedia, accessed with a pre-trained neural retriever.
+
+Key contributions:
+
+RAG-Sequence uses the same retrieved document to predict each token in the generated sequence. It marginalises over documents for the whole sequence.
+
+RAG-Token can use a different document for each target token. The generator is conditioned on a latent document variable for every token, allowing retrieval of different documents throughout generation.
+
+The retriever component is based on Dense Passage Retrieval (DPR). Documents are encoded with a BERT-based bi-encoder. At query time the top-k documents are retrieved using Maximum Inner Product Search (MIPS) over the Wikipedia index.
+
+The system was evaluated on Natural Questions, TriviaQA, WebQuestions, and CuratedTrec open-domain QA benchmarks, as well as FEVER fact verification and the MS-MARCO and Jeopardy question generation tasks.
+
+On Natural Questions, RAG achieves 44.5 exact match — a new state of the art, surpassing even task-specific retrieve-then-read pipelines.
+
+
+RELATIONSHIP BETWEEN THE TWO WORKS
+=====================================
+
+RAG builds on the Transformer architecture for both its retrieval (DPR uses BERT, itself a Transformer) and generation (BART, a seq2seq Transformer) components. The attention mechanism introduced in "Attention Is All You Need" is therefore foundational to both the retriever and generator in a RAG system.
+
+The key insight that connects them: Transformers learn to attend selectively over a fixed context window. RAG extends this by dynamically selecting which context (documents) to attend over at inference time, effectively giving the model an external, updatable memory beyond its parameter count.

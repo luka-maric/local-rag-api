@@ -1,0 +1,25 @@
+# Development overrides - used with:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# What this adds over the base:
+#   1. Volume mount: your local ./app is mounted into the container,
+#      so code changes reflect immediately without rebuilding
+#   2. --reload flag: uvicorn restarts when it detects file changes
+#   3. debugpy: listens on port 5678, VSCode attaches to it
+
+services:
+  api:
+    command: >
+      python -m debugpy --listen 0.0.0.0:5678
+      -m uvicorn app.main:app
+      --host 0.0.0.0
+      --port 8000
+      --reload
+    volumes:
+      - ./app:/app/app          # live code reload
+      - ./tests:/app/tests      # tests visible inside container
+    ports:
+      - "8000:8000"
+      - "5678:5678"             # debugpy port for VSCode
+    environment:
+      APP_ENV: "development"

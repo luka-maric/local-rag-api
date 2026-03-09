@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Secrets — never commit
+.env
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# Type checkers / linters
+.mypy_cache/
+.ruff_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code (AI tool config — not part of the project)
+.claude/
+
+# Logs
+*.log
+
+# Sample PDFs — large copyrighted binaries; commit text samples only
+data/sample_documents/*.pdf
+
+# Developer phase notes — internal to this project's build process
+docs/

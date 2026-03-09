@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 15s       # pull metrics from all targets every 15 seconds
+  evaluation_interval: 15s   # evaluate alerting rules (none defined yet)
+
+scrape_configs:
+  - job_name: rag_api
+    static_configs:
+      # 'api' is the Docker Compose service name — resolves on the shared bridge network.
+      # Do NOT use 'localhost:8000' here: that would refer to the Prometheus container
+      # itself, not the FastAPI container.
+      - targets: ['api:8000']

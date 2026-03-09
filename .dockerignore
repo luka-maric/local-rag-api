@@ -1,0 +1,29 @@
+# Version control
+.git/
+.gitignore
+
+# Python — Docker installs its own deps; .venv is 1-2 GB (torch, sentence-transformers)
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# Secrets
+.env
+
+# Development tooling
+Makefile
+*.md
+docs/
+data/
+
+# Infrastructure — not part of the API image
+docker-compose*.yml
+monitoring/
+ollama/
+ui/

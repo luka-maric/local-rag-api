@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rag-api"
+version = "0.1.0"
+description = "Multi-tenant RAG Backend API for document-based Q&A"
+requires-python = ">=3.11"
+dependencies = [
+    # Web framework
+    "fastapi[standard]>=0.115.0",   # includes uvicorn, pydantic v2
+
+    # Database
+    "sqlalchemy[asyncio]>=2.0.0",   # async ORM
+    "asyncpg>=0.29.0",              # async postgres driver
+    "alembic>=1.13.0",              # schema migrations
+    "pgvector>=0.3.0",              # pgvector Python client
+
+    # Config
+    "pydantic-settings>=2.0.0",     # settings from env vars
+
+    # Cache
+    "redis[hiredis]>=5.0.0",        # async redis client
+
+    # ML / embeddings
+    "sentence-transformers>=3.0.0", # all-MiniLM-L6-v2 and friends
+    "torch>=2.0.0",                 # required by sentence-transformers (CPU)
+
+    # LLM (Ollama client)
+    "httpx>=0.27.0",                # async HTTP - used for Ollama API + testing
+
+    # NER
+    "spacy>=3.7.0",                 # named entity recognition
+
+    # Auth
+    "python-jose[cryptography]>=3.3.0",  # JWT encode/decode
+    "passlib[bcrypt]>=1.7.4",            # password hashing
+
+    # File upload
+    "python-multipart>=0.0.9",      # required for FastAPI file uploads
+
+    # Text extraction
+    "pymupdf>=1.24.0",              # PDF text extraction (wraps MuPDF C library — handles rotation, ligatures, complex layouts)
+    "pdf2image>=1.17.0",            # convert PDF pages to PIL images for OCR (needs poppler system pkg)
+    "pytesseract>=0.3.10",          # OCR wrapper around Tesseract (needs tesseract system pkg)
+    "Pillow>=10.0.0",               # PIL image handling (required by pdf2image and direct image OCR)
+
+    # Logging
+    "structlog>=24.0.0",            # structured JSON logging
+
+    # Observability
+    "prometheus-fastapi-instrumentator>=7.0.0",  # auto HTTP metrics for FastAPI
+    "prometheus-client>=0.21.0",                  # Counter, Histogram, Gauge primitives
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",       # async test support
+    "pytest-cov>=5.0.0",            # coverage reports
+    "debugpy>=1.8.0",               # VSCode remote debugging
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"               # all async tests run automatically
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["*/tests/*"]

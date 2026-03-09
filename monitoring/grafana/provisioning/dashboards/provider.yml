@@ -1,0 +1,15 @@
+apiVersion: 1
+
+providers:
+  - name: default
+    orgId: 1
+    folder: ""
+    type: file
+    disableDeletion: false
+    # Poll every 30 seconds — picks up changes to dashboard JSON files without restart.
+    updateIntervalSeconds: 30
+    options:
+      # Grafana scans this directory for .json files and loads them as dashboards.
+      # The Docker Compose volume mount puts grafana/provisioning/dashboards/
+      # at this path inside the container.
+      path: /etc/grafana/provisioning/dashboards

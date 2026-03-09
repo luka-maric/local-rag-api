@@ -1,0 +1,14 @@
+# Modelfile for importing llama3.2:3b from a local GGUF file.
+# Used by: make import-llm GGUF=/path/to/file.gguf
+# The 'make import-llm' target copies the GGUF into the container as /tmp/model.gguf
+# before running 'ollama create', so this path is fixed.
+FROM /tmp/model.gguf
+
+TEMPLATE """{{ if .System }}<|start_header_id|>system<|end_header_id|>
+{{ .System }}<|eot_id|>{{ end }}{{ range .Messages }}<|start_header_id|>{{ .Role }}<|end_header_id|>
+{{ .Content }}<|eot_id|>{{ end }}<|start_header_id|>assistant<|end_header_id|>
+"""
+
+PARAMETER stop "<|start_header_id|>"
+PARAMETER stop "<|end_header_id|>"
+PARAMETER stop "<|eot_id|>"
