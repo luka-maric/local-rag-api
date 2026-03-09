@@ -26,4 +26,4 @@ data/
 docker-compose*.yml
 monitoring/
 ollama/
-ui/
+ui/Dockerfile
