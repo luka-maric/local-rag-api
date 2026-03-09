@@ -36,49 +36,49 @@ Tenants upload PDF or image documents via a REST API. Documents are asynchronous
 flowchart TD
 
     Browser["Browser"]
-    UI["Gradio UI\n(port 7860)"]
+    UI["Gradio UI\nPort 7860"]
 
-    subgraph API["FastAPI Application Layer (port 8000)"]
+    subgraph API["FastAPI Application Layer"]
         Auth["Authentication API"]
         Docs["Document Management API"]
-        Chat["Query & Chat API"]
+        Chat["Query and Chat API"]
     end
 
-    subgraph Ingestion["Asynchronous Document Ingestion Pipeline"]
-        Extract["Text Extraction\n(PyMuPDF / OCR)"]
-        NER["Named Entity Recognition\n(bert-base-NER)"]
-        Chunk["Document Chunking\n(Recursive Strategy)"]
-        Embed["Embedding Generation\n(all-MiniLM-L6-v2)"]
+    subgraph Ingestion["Async Document Ingestion Pipeline"]
+        Extract["Text Extraction\nPyMuPDF / OCR"]
+        NER["Named Entity Recognition\nbert-base-NER"]
+        Chunk["Document Chunking\nRecursive Strategy"]
+        Embed["Embedding Generation\nall-MiniLM-L6-v2"]
 
         Extract --> NER --> Chunk --> Embed
     end
 
     subgraph Observability["Observability"]
-        Prometheus["Prometheus\n(port 9090)"]
-        Grafana["Grafana\n(port 3000)"]
+        Prometheus["Prometheus\nPort 9090"]
+        Grafana["Grafana\nPort 3000"]
         Prometheus --> Grafana
     end
 
-    PG[("PostgreSQL 16\n+ pgvector")]
+    PG[("PostgreSQL 16\npgvector extension")]
     Redis[("Redis Cache")]
-    LLM["Ollama\n(Llama 3.2:3B)"]
+    LLM["Ollama\nLlama 3.2 3B"]
 
-    Browser <-->|"HTTP"| UI
-    UI -->|"Bearer JWT / REST"| API
+    Browser <-->|HTTP| UI
+    UI -->|REST API + Bearer JWT| API
 
-    Auth <-->|"Read / write"| PG
-    Auth -.->|"Rate limiting"| Redis
+    Auth <-->|Metadata read/write| PG
+    Auth -.->|Rate limiting| Redis
 
     Docs --> Ingestion
     Ingestion --> PG
 
-    Embed -.->|"Embedding cache"| Redis
+    Embed -.->|Embedding cache| Redis
 
-    Chat -->|"Vector similarity search"| PG
-    Chat -->|"RAG prompt + history"| LLM
-    LLM -->|"SSE: session / sources / tokens"| UI
+    Chat -->|Vector similarity search| PG
+    Chat -->|RAG prompt + history| LLM
+    LLM -->|SSE stream tokens| UI
 
-    API -.->|"/metrics scrape"| Prometheus
+    API -.->|Metrics scrape| Prometheus
 ```
 
 ---
