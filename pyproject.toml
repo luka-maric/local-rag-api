@@ -25,13 +25,13 @@ dependencies = [
 
     # ML / embeddings
     "sentence-transformers>=3.0.0", # all-MiniLM-L6-v2 and friends
-    "torch>=2.0.0",                 # required by sentence-transformers (CPU)
+    "torch>=2.0.0",                 # required by sentence-transformers
 
     # LLM (Ollama client)
     "httpx>=0.27.0",                # async HTTP - used for Ollama API + testing
 
     # NER
-    "spacy>=3.7.0",                 # named entity recognition
+    "transformers>=4.40.0",         # dslim/bert-base-NER pipeline
 
     # Auth
     "python-jose[cryptography]>=3.3.0",  # JWT encode/decode
