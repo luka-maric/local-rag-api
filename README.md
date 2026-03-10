@@ -30,55 +30,73 @@ Tenants upload PDF or image documents via a REST API. Documents are asynchronous
 
 ---
 
+## Demo
+
+[![Watch the demo](https://img.youtube.com/vi/yKqc8trh118/maxresdefault.jpg)](https://youtu.be/yKqc8trh118)
+
+*Register a tenant → upload a PDF → chat with grounded answers streamed token-by-token, with source attribution and extracted named entities.*
+
+---
+
 ## Architecture
 
 ```mermaid
-flowchart TD
+flowchart LR
 
-    Browser["Browser"]
-    UI["Gradio UI\nPort 7860"]
+Browser["Browser"]
+UI["Gradio UI<br>:7860"]
 
-    subgraph API["FastAPI Application Layer"]
-        Auth["Authentication API"]
-        Docs["Document Management API"]
-        Chat["Query and Chat API"]
-    end
+Browser <-->|HTTP| UI
 
-    subgraph Ingestion["Async Document Ingestion Pipeline"]
-        Extract["Text Extraction\nPyMuPDF / OCR"]
-        NER["Named Entity Recognition\nbert-base-NER"]
-        Chunk["Document Chunking\nRecursive Strategy"]
-        Embed["Embedding Generation\nall-MiniLM-L6-v2"]
+subgraph API["FastAPI API · :8000"]
+    direction TB
+    Auth["Auth<br>/auth/register<br>/auth/token"]
+    Docs["Documents<br>/documents/upload<br>list · get · delete"]
+    Chat["Query & Chat<br>/query · /chat"]
+end
 
-        Extract --> NER --> Chunk --> Embed
-    end
+UI -->|REST + Bearer JWT| Auth
+UI --> Docs
+UI --> Chat
 
-    subgraph Observability["Observability"]
-        Prometheus["Prometheus\nPort 9090"]
-        Grafana["Grafana\nPort 3000"]
-        Prometheus --> Grafana
-    end
+subgraph Pipeline["Async Ingestion Pipeline"]
+    direction LR
+    Extract["Extraction<br>PyMuPDF<br>Tesseract OCR fallback"]
+    NER["NER<br>dslim/bert-base-NER"]
+    Chunk["Chunking<br>recursive · 512 tokens<br>50 overlap"]
+    Embed["Embedding<br>all-MiniLM-L6-v2<br>384-dim"]
 
-    PG[("PostgreSQL 16\npgvector extension")]
-    Redis[("Redis Cache")]
-    LLM["Ollama\nLlama 3.2 3B"]
+    Extract --> NER --> Chunk --> Embed
+end
 
-    Browser <-->|HTTP| UI
-    UI -->|REST API + Bearer JWT| API
+Docs -->|BackgroundTask| Extract
 
-    Auth <-->|Metadata read/write| PG
-    Auth -.->|Rate limiting| Redis
+PG[("PostgreSQL 16 + pgvector<br>tenants · documents<br>chunks + vectors")]
+Redis[("Redis 7<br>embedding cache<br>rate-limit counters")]
 
-    Docs --> Ingestion
-    Ingestion --> PG
+Auth <-->|tenant data| PG
+Auth -.->|rate limits| Redis
 
-    Embed -.->|Embedding cache| Redis
+Embed -->|store vectors| PG
+Embed -.->|vector cache| Redis
 
-    Chat -->|Vector similarity search| PG
-    Chat -->|RAG prompt + history| LLM
-    LLM -->|SSE stream tokens| UI
+Chat -->|HNSW cosine search<br>top-k chunks| PG
 
-    API -.->|Metrics scrape| Prometheus
+LLM["Ollama<br>:11434<br>llama3.2:3b"]
+
+Chat -->|grounded prompt| LLM
+LLM -->|token stream| Chat
+Chat -->|SSE stream| UI
+
+subgraph Observability
+    direction TB
+    Prometheus["Prometheus<br>:9090"]
+    Grafana["Grafana<br>:3000"]
+end
+
+Prometheus --> Grafana
+Prometheus -.->|scrapes /metrics| API
+
 ```
 
 ---
