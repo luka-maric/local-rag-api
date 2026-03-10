@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     auth_token_rate_limit_requests: int = 10
     auth_token_rate_limit_window: int = 60
 
+    # Upload limits
+    max_upload_bytes: int = 50 * 1024 * 1024  # 50 MB
+
     # App
     app_env: str = "development"
     log_level: str = "INFO"
