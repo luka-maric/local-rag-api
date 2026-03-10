@@ -1,9 +1,15 @@
+import asyncio
+
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator
+from redis.asyncio import Redis
+from sqlalchemy import text
 
 from app.config import settings
+from app.db.session import AsyncSessionLocal
 
 logger = structlog.get_logger()
 
@@ -19,7 +25,7 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],     # tighten this in production
+        allow_origins=settings.cors_allow_origins,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -39,13 +45,42 @@ def create_app() -> FastAPI:
     app.include_router(chat_router, prefix="/api/v1")
 
     @app.get("/health", tags=["infrastructure"])
-    async def health_check():
-        """Lightweight liveness check — no database calls."""
-        return {
-            "status": "ok",
-            "env": settings.app_env,
-            "version": "0.1.0",
-        }
+    async def health_check() -> JSONResponse:
+        """
+        Readiness check — probes Postgres and Redis with a 2-second timeout each.
+        Returns 200 when both are reachable, 503 when either is not.
+        """
+        checks: dict[str, str] = {}
+
+        try:
+            async with AsyncSessionLocal() as session:
+                await asyncio.wait_for(
+                    session.execute(text("SELECT 1")), timeout=2.0
+                )
+            checks["database"] = "ok"
+        except Exception as exc:
+            checks["database"] = f"error: {exc}"
+
+        try:
+            redis = Redis.from_url(settings.redis_url)
+            await asyncio.wait_for(redis.ping(), timeout=2.0)
+            await redis.aclose()
+            checks["redis"] = "ok"
+        except Exception as exc:
+            checks["redis"] = f"error: {exc}"
+
+        healthy = all(v == "ok" for v in checks.values())
+        status_code = 200 if healthy else 503
+
+        return JSONResponse(
+            status_code=status_code,
+            content={
+                "status": "ok" if healthy else "degraded",
+                "version": "0.1.0",
+                "env": settings.app_env,
+                "checks": checks,
+            },
+        )
 
     logger.info("app_created", env=settings.app_env)
     return app

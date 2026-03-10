@@ -214,6 +214,20 @@ async def test_empty_file_returns_400(client):
     assert "empty" in response.json()["detail"].lower()
 
 
+@pytest.mark.asyncio
+async def test_oversized_file_returns_413(client):
+    from unittest.mock import patch
+    oversized = b"x" * (51 * 1024 * 1024)  # 51 MB — over the 50 MB default
+    with patch("app.api.v1.documents.settings") as mock_settings:
+        mock_settings.max_upload_bytes = 50 * 1024 * 1024
+        response = await client.post(
+            "/api/v1/documents/upload",
+            **_make_file_upload(content=oversized),
+        )
+    assert response.status_code == 413
+    assert "50 MB" in response.json()["detail"]
+
+
 from app.api.v1.documents import _validate_file_magic
 
 

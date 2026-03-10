@@ -163,6 +163,13 @@ async def upload_document(
     if not file_bytes:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
+    if len(file_bytes) > settings.max_upload_bytes:
+        max_mb = settings.max_upload_bytes // (1024 * 1024)
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Maximum allowed size is {max_mb} MB.",
+        )
+
     _validate_file_magic(file_bytes, file.filename or "")
 
     content_hash = hashlib.sha256(file_bytes).hexdigest()
