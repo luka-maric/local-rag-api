@@ -2,24 +2,6 @@
 
 Revision ID: d1e2f3a4b5c6
 Revises: c9d4e5f6a7b8
-
-Adds:
-  chat_sessions — one row per conversation thread (tenant-scoped)
-  chat_messages — one row per user or assistant turn within a session
-
-WHY TWO TABLES?
-  A session is a container for messages. One session has many messages.
-  This normalised design lets us:
-    - Load a session by ID without pulling all its messages.
-    - Load the last N messages without scanning the entire history.
-    - Delete a session and cascade-delete all its messages in one transaction.
-
-INDEXES:
-  ix_chat_sessions_tenant_id  — fast lookup of all sessions for a tenant.
-  ix_chat_messages_session_id — fast lookup of all messages for a session.
-
-  Both are B-tree indexes on UUID foreign key columns. Without them, loading
-  a session's messages would require a full-table scan of chat_messages.
 """
 from typing import Sequence, Union
 

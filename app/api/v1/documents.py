@@ -1,11 +1,3 @@
-"""
-Document management endpoints.
-
-POST   /api/v1/documents/upload   — upload and queue a document for ingestion
-GET    /api/v1/documents/         — paginated list of tenant's documents
-GET    /api/v1/documents/{id}     — fetch document metadata and processing status
-DELETE /api/v1/documents/{id}     — delete document and all its chunks
-"""
 import asyncio
 import hashlib
 import uuid
@@ -49,7 +41,6 @@ _MAGIC_BYTES: dict[str, bytes] = {
 
 
 def _validate_file_magic(file_bytes: bytes, filename: str) -> None:
-    """Raise HTTP 400 if the file's magic bytes don't match its extension."""
     ext = Path(filename).suffix.lower()
     expected_magic = _MAGIC_BYTES.get(ext)
 
@@ -77,35 +68,19 @@ async def process_document(
     filename: str,
     tenant_id: uuid.UUID,
 ) -> None:
-    """
-    Extract → chunk → embed → store. Runs after the 202 response is sent.
-
-    Uses its own database session (the request session is committed and closed
-    before this background task executes). On failure, chunk_count stays 0
-    so callers can detect the incomplete state.
-    """
     async with AsyncSessionLocal() as db:
         try:
             with document_processing_seconds.time():
-                # 1. Extract — synchronous (PyMuPDF / pytesseract), offloaded to thread
                 text: str = await asyncio.to_thread(
                     _extraction_service.extract, file_bytes, filename
                 )
 
-                # 2. NER — runs on full text before chunking so entities aren't split across chunks
                 entities = await _ner_service.extract_entities(text)
-
-                # 3. Chunk — pure Python, fast enough to run on the event loop directly
                 chunks = _chunking_service.chunk(text)
-
-                # 4. Embed — batches all chunks in one model call
                 vectors = await _embedding_service.embed_texts([c.text for c in chunks])
 
-                # 5. Fetch document before adding chunks — avoids autoflush
-                # firing mid-session when db.get() runs on a dirty session.
                 doc = await db.get(Document, document_id)
 
-                # 6. Store chunks
                 db_chunks = [
                     DocumentChunk(
                         tenant_id=tenant_id,
@@ -118,7 +93,6 @@ async def process_document(
                 ]
                 db.add_all(db_chunks)
 
-                # 7. Update denormalized chunk_count and NER entities
                 doc.chunk_count = len(chunks)
                 doc.entities = entities or None
 
@@ -201,11 +175,6 @@ async def upload_document(
     )
     db.add(doc)
 
-    # commit() here (not flush()) so the document row is visible to the
-    # background task. In FastAPI/Starlette, background tasks run before
-    # dependency middleware unwinds, meaning get_db's commit would otherwise
-    # fire after process_document starts — leaving the row uncommitted and
-    # invisible to the background task's separate session (FK violation).
     await db.commit()
 
     background_tasks.add_task(
@@ -224,7 +193,6 @@ async def upload_document(
         size_bytes=len(file_bytes),
     )
 
-    # Increment after flush() succeeds — duplicate uploads (200 path) are not counted.
     documents_uploaded_total.inc()
 
     return UploadResponse(
