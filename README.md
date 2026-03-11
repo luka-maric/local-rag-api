@@ -5,7 +5,7 @@
 ![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-164%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-167%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
 ---
@@ -299,7 +299,7 @@ All settings are loaded from environment variables (or `.env`).
 pytest tests/
 ```
 
-164 tests. Zero external network calls — all ML models, Redis, and Postgres interactions are mocked.
+167 tests — 161 unit tests with all external I/O mocked, plus 6 integration tests against a real Postgres instance.
 
 ---
 
@@ -331,7 +331,7 @@ app/
 ├── dependencies.py  # JWT auth dependency
 ├── main.py          # App factory
 └── metrics.py       # Prometheus custom metrics
-tests/               # 164 unit tests — all external I/O mocked
+tests/               # 167 tests (161 unit + 6 integration)
 ui/                  # Gradio frontend (app.py + Dockerfile)
 alembic/             # Database migration history
 monitoring/          # Prometheus config and Grafana provisioned dashboards
