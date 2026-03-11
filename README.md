@@ -63,7 +63,7 @@ subgraph Pipeline["Async Ingestion Pipeline"]
     direction LR
     Extract["Extraction<br>PyMuPDF<br>Tesseract OCR fallback"]
     NER["NER<br>dslim/bert-base-NER"]
-    Chunk["Chunking<br>recursive · 512 tokens<br>50 overlap"]
+    Chunk["Chunking<br>recursive · 300 chars<br>50 overlap"]
     Embed["Embedding<br>all-MiniLM-L6-v2<br>384-dim"]
 
     Extract --> NER --> Chunk --> Embed
@@ -283,13 +283,13 @@ All settings are loaded from environment variables (or `.env`).
 | `REDIS_URL` | `redis://localhost:6379` | Redis connection URL (optional — degrades gracefully) |
 | `JWT_SECRET_KEY` | — | HMAC-SHA256 signing secret (min 32 chars) |
 | `JWT_ALGORITHM` | `HS256` | JWT signing algorithm |
-| `JWT_EXPIRE_MINUTES` | `60` | Token lifetime |
+| `JWT_EXPIRY_MINUTES` | `60` | Token lifetime |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama API base URL |
 | `OLLAMA_MODEL` | `llama3.2:3b` | Model name passed to `/api/chat` |
-| `REGISTER_MAX_REQUESTS` | `5` | Rate-limit: registrations per window |
-| `REGISTER_WINDOW_SECONDS` | `300` | Rate-limit: window for registration |
-| `TOKEN_MAX_REQUESTS` | `10` | Rate-limit: token requests per window |
-| `TOKEN_WINDOW_SECONDS` | `60` | Rate-limit: window for token endpoint |
+| `AUTH_REGISTER_RATE_LIMIT_REQUESTS` | `5` | Rate-limit: registrations per window |
+| `AUTH_REGISTER_RATE_LIMIT_WINDOW` | `300` | Rate-limit: window for registration (seconds) |
+| `AUTH_TOKEN_RATE_LIMIT_REQUESTS` | `10` | Rate-limit: token requests per window |
+| `AUTH_TOKEN_RATE_LIMIT_WINDOW` | `60` | Rate-limit: window for token endpoint (seconds) |
 
 ---
 
