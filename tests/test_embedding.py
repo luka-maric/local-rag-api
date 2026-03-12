@@ -1,5 +1,6 @@
-import json
 from unittest.mock import AsyncMock, MagicMock, patch, call
+
+import numpy as np
 
 import pytest
 
@@ -123,14 +124,14 @@ async def test_cache_miss_stores_result_in_redis(mock_redis):
     stored_value = args[1]
 
     assert cache_key.startswith("embed:")
-    assert stored_value == json.dumps(vector)
+    assert stored_value == np.array(vector, dtype=np.float32).tobytes()
     assert "ex" in kwargs  # TTL must be set
 
 
 @pytest.mark.asyncio
 async def test_cache_hit_skips_model(mock_redis):
     cached_vector = fake_vectors(1, 0.42)[0]
-    mock_redis.get.return_value = json.dumps(cached_vector)  # cache hit
+    mock_redis.get.return_value = np.array(cached_vector, dtype=np.float32).tobytes()
 
     with patch("app.services.embedding._encode_sync") as mock_encode:
         service = EmbeddingService(redis=mock_redis)
@@ -142,7 +143,7 @@ async def test_cache_hit_skips_model(mock_redis):
 @pytest.mark.asyncio
 async def test_cache_hit_returns_correct_vector(mock_redis):
     cached_vector = [round(i * 0.001, 6) for i in range(FAKE_DIM)]
-    mock_redis.get.return_value = json.dumps(cached_vector)
+    mock_redis.get.return_value = np.array(cached_vector, dtype=np.float32).tobytes()
 
     with patch("app.services.embedding._encode_sync"):
         service = EmbeddingService(redis=mock_redis)
@@ -168,9 +169,9 @@ async def test_mixed_cache_hits_and_misses_preserves_order(mock_redis):
 
     # A: hit, B: miss, C: hit
     mock_redis.get.side_effect = [
-        json.dumps(vector_a),   # A → cache hit
-        None,                   # B → cache miss
-        json.dumps(vector_c),   # C → cache hit
+        np.array(vector_a, dtype=np.float32).tobytes(),  # A → cache hit
+        None,                                             # B → cache miss
+        np.array(vector_c, dtype=np.float32).tobytes(),  # C → cache hit
     ]
 
     with patch("app.services.embedding._encode_sync") as mock_encode:

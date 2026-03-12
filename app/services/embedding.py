@@ -1,9 +1,10 @@
 """Embedding service — converts text to 384-dim vectors using sentence-transformers."""
 import asyncio
 import hashlib
-import json
 import logging
 import threading
+
+import numpy as np
 
 from sentence_transformers import SentenceTransformer
 
@@ -121,7 +122,7 @@ class EmbeddingService:
                 embedding_cache_misses_total.inc()
                 return None
             embedding_cache_hits_total.inc()
-            return json.loads(raw)
+            return np.frombuffer(raw, dtype=np.float32).tolist()
         except Exception:
             logger.warning("Redis cache read failed — proceeding without cache")
             return None
@@ -133,7 +134,7 @@ class EmbeddingService:
         try:
             await self._redis.set(
                 self._cache_key(text),
-                json.dumps(vector),
+                np.array(vector, dtype=np.float32).tobytes(),
                 ex=self._CACHE_TTL_SECONDS,
             )
         except Exception:
