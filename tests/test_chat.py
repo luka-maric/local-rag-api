@@ -141,6 +141,7 @@ async def test_chat_returns_200(mock_asl, mock_embed, mock_ollama, client_and_db
     mock_embed.embed_one = AsyncMock(return_value=FAKE_QUERY_VECTOR)
     mock_db.execute = AsyncMock(side_effect=[
         _make_execute_result([]),
+        MagicMock(),
         _make_execute_result([]),
     ])
     mock_asl.return_value = _make_save_db_patch(save_db)
@@ -166,6 +167,7 @@ async def test_chat_first_event_is_session(mock_asl, mock_embed, mock_ollama, cl
     mock_embed.embed_one = AsyncMock(return_value=FAKE_QUERY_VECTOR)
     mock_db.execute = AsyncMock(side_effect=[
         _make_execute_result([]),
+        MagicMock(),
         _make_execute_result([]),
     ])
     mock_asl.return_value = _make_save_db_patch(save_db)
@@ -195,6 +197,7 @@ async def test_chat_last_event_is_done(mock_asl, mock_embed, mock_ollama, client
     mock_embed.embed_one = AsyncMock(return_value=FAKE_QUERY_VECTOR)
     mock_db.execute = AsyncMock(side_effect=[
         _make_execute_result([]),
+        MagicMock(),
         _make_execute_result([]),
     ])
     mock_asl.return_value = _make_save_db_patch(save_db)
@@ -220,6 +223,7 @@ async def test_chat_streams_token_events(mock_asl, mock_embed, mock_ollama, clie
     mock_embed.embed_one = AsyncMock(return_value=FAKE_QUERY_VECTOR)
     mock_db.execute = AsyncMock(side_effect=[
         _make_execute_result([]),
+        MagicMock(),
         _make_execute_result([]),
     ])
     mock_asl.return_value = _make_save_db_patch(save_db)
@@ -253,6 +257,7 @@ async def test_chat_loads_existing_session(mock_asl, mock_embed, mock_ollama, cl
     mock_embed.embed_one = AsyncMock(return_value=FAKE_QUERY_VECTOR)
     mock_db.execute = AsyncMock(side_effect=[
         _make_execute_result([]),
+        MagicMock(),
         _make_execute_result([]),
     ])
     mock_asl.return_value = _make_save_db_patch(save_db)
@@ -319,6 +324,7 @@ async def test_chat_includes_history_in_ollama_call(mock_asl, mock_embed, mock_o
     ]
     mock_db.execute = AsyncMock(side_effect=[
         _make_execute_result(history),
+        MagicMock(),
         _make_execute_result([]),
     ])
     mock_embed.embed_one = AsyncMock(return_value=FAKE_QUERY_VECTOR)
@@ -357,9 +363,10 @@ async def test_chat_injects_chunks_into_system_prompt(mock_asl, mock_embed, mock
     chunk = _make_fake_chunk(text="The invoice is due in 30 days.", doc_id=FAKE_DOC_ID)
     fake_doc = _make_fake_doc(doc_id=FAKE_DOC_ID, filename="invoice.txt")
     mock_db.execute = AsyncMock(side_effect=[
-        _make_execute_result([]),          # history
-        _make_execute_result([chunk]),     # chunks
-        _make_execute_result([fake_doc]),  # document filename lookup
+        _make_execute_result([]),
+        MagicMock(),
+        _make_execute_result([chunk]),
+        _make_execute_result([fake_doc]),
     ])
     mock_embed.embed_one = AsyncMock(return_value=FAKE_QUERY_VECTOR)
     mock_asl.return_value = _make_save_db_patch(save_db)
@@ -389,6 +396,7 @@ async def test_chat_no_chunks_uses_fallback_system_prompt(mock_asl, mock_embed, 
 
     mock_db.execute = AsyncMock(side_effect=[
         _make_execute_result([]),
+        MagicMock(),
         _make_execute_result([]),
     ])
     mock_embed.embed_one = AsyncMock(return_value=FAKE_QUERY_VECTOR)
@@ -419,6 +427,7 @@ async def test_chat_stores_user_message_before_streaming(mock_asl, mock_embed, m
 
     mock_db.execute = AsyncMock(side_effect=[
         _make_execute_result([]),
+        MagicMock(),
         _make_execute_result([]),
     ])
     mock_embed.embed_one = AsyncMock(return_value=FAKE_QUERY_VECTOR)
@@ -447,6 +456,7 @@ async def test_chat_stores_assistant_message_after_streaming(mock_asl, mock_embe
 
     mock_db.execute = AsyncMock(side_effect=[
         _make_execute_result([]),
+        MagicMock(),
         _make_execute_result([]),
     ])
     mock_embed.embed_one = AsyncMock(return_value=FAKE_QUERY_VECTOR)
@@ -479,6 +489,7 @@ async def test_chat_ollama_error_emits_error_event(mock_asl, mock_embed, mock_ol
 
     mock_db.execute = AsyncMock(side_effect=[
         _make_execute_result([]),
+        MagicMock(),
         _make_execute_result([]),
     ])
     mock_embed.embed_one = AsyncMock(return_value=FAKE_QUERY_VECTOR)
@@ -517,3 +528,29 @@ async def test_chat_top_k_zero_returns_422(client_and_db):
         json={"message": "Hello", "top_k": 0},
     )
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+@patch("app.api.v1.chat._ollama_service")
+@patch("app.api.v1.chat._embedding_service")
+@patch("app.api.v1.chat.AsyncSessionLocal")
+async def test_ef_search_set_before_vector_query(mock_asl, mock_embed, mock_ollama, client_and_db, save_db):
+    client, mock_db = client_and_db
+    mock_embed.embed_one = AsyncMock(return_value=FAKE_QUERY_VECTOR)
+    mock_db.execute = AsyncMock(side_effect=[
+        _make_execute_result([]),
+        MagicMock(),
+        _make_execute_result([]),
+    ])
+    mock_asl.return_value = _make_save_db_patch(save_db)
+
+    async def _no_tokens(_):
+        return
+        yield
+
+    mock_ollama.stream = _no_tokens
+
+    await client.post("/api/v1/chat", **_chat_request())
+
+    sql_calls = [str(c.args[0]) for c in mock_db.execute.call_args_list if c.args]
+    assert any("ef_search" in sql for sql in sql_calls)

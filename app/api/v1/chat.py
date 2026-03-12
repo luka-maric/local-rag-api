@@ -7,7 +7,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from redis.asyncio import Redis
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -108,6 +108,8 @@ async def chat(
 
     # 3. Retrieval: embed query, find similar chunks
     query_vector = await _embedding_service.embed_one(request.message)
+
+    await db.execute(text("SET hnsw.ef_search = :val"), {"val": settings.hnsw_ef_search})
 
     chunks_result = await db.execute(
         select(DocumentChunk)

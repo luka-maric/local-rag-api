@@ -4,7 +4,7 @@ import uuid
 import structlog
 from fastapi import APIRouter, Depends
 from redis.asyncio import Redis
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -41,8 +41,8 @@ async def search_documents(
     vectors = await _embedding_service.embed_texts([request.query])
     query_vector = vectors[0]
 
-    # Cosine distance search via HNSW index; ORDER BY distance ASC = most similar first.
-    # WHERE embedding IS NOT NULL skips chunks still awaiting background processing.
+    await db.execute(text("SET hnsw.ef_search = :val"), {"val": settings.hnsw_ef_search})
+
     distance_expr = DocumentChunk.embedding.cosine_distance(query_vector)
 
     result = await db.execute(

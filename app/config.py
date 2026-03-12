@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     # Accepts a JSON array in the env var: CORS_ALLOW_ORIGINS='["https://app.example.com"]'
     cors_allow_origins: list[str] = ["http://localhost:7860"]
 
+    # Vector search
+    hnsw_ef_search: int = 40
+
     # Upload limits
     max_upload_bytes: int = 50 * 1024 * 1024  # 50 MB
 

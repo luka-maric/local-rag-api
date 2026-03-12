@@ -210,3 +210,16 @@ async def test_top_k_zero_returns_422(client_and_db):
         json={"query": FAKE_QUERY, "top_k": 0},
     )
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+@patch("app.api.v1.query._embedding_service")
+async def test_ef_search_set_before_vector_query(mock_embed, client_and_db):
+    client, mock_db = client_and_db
+    mock_embed.embed_texts = AsyncMock(return_value=[FAKE_QUERY_VECTOR])
+    mock_db.execute = AsyncMock(return_value=_make_db_result([]))
+
+    await client.post("/api/v1/query", **_query_payload())
+
+    first_call_sql = str(mock_db.execute.call_args_list[0].args[0])
+    assert "ef_search" in first_call_sql
