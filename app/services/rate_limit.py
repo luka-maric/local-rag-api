@@ -1,4 +1,3 @@
-"""Redis fixed-window rate limiter for auth endpoints."""
 import structlog
 from fastapi import HTTPException, Request
 from redis.asyncio import Redis
@@ -7,12 +6,10 @@ from app.config import settings
 
 logger = structlog.get_logger()
 
-# decode_responses=True: Redis returns str, not bytes.
 _redis = Redis.from_url(settings.redis_url, decode_responses=True)
 
 
 def _get_client_ip(request: Request) -> str:
-    """Return the real client IP, checking X-Forwarded-For for proxied requests."""
     forwarded = request.headers.get("X-Forwarded-For")
     if forwarded:
         return forwarded.split(",")[0].strip()
@@ -20,8 +17,6 @@ def _get_client_ip(request: Request) -> str:
 
 
 class RateLimiter:
-    """Fixed-window rate limit by IP. Use as a FastAPI Depends() callable."""
-
     def __init__(self, max_requests: int, window_seconds: int, key_prefix: str):
         self.max_requests = max_requests
         self.window_seconds = window_seconds
@@ -34,8 +29,7 @@ class RateLimiter:
         try:
             count = await _redis.incr(key)
 
-            # Set expiry only on the first increment — setting it on every call
-            # would reset the window on every request, defeating the purpose.
+            # EXPIRE only on first increment — resetting on every call would extend the window
             if count == 1:
                 await _redis.expire(key, self.window_seconds)
 
@@ -47,18 +41,11 @@ class RateLimiter:
                     count=count,
                     max_requests=self.max_requests,
                 )
-                raise HTTPException(
-                    status_code=429,
-                    detail="Too many requests. Please try again later.",
-                )
+                raise HTTPException(status_code=429, detail="Too many requests. Please try again later.")
 
         except HTTPException:
-            raise  # don't swallow our own 429 inside the broad except below
+            raise
 
         except Exception as exc:
-            # fail-open: Redis unavailable → request passes through
-            logger.warning(
-                "rate_limiter_redis_unavailable",
-                key_prefix=self.key_prefix,
-                error=str(exc),
-            )
+            # fail-open: Redis unavailable → let the request through
+            logger.warning("rate_limiter_redis_unavailable", key_prefix=self.key_prefix, error=str(exc))

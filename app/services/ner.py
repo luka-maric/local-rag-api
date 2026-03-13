@@ -1,10 +1,8 @@
-"""NER service — extracts named entities using dslim/bert-base-NER."""
 import asyncio
 import threading
 
 from transformers import pipeline
 
-# Maps transformers entity_group labels → our API labels.
 ENTITY_TYPE_MAP = {
     "PER": "PERSON",
     "ORG": "ORG",
@@ -17,7 +15,6 @@ _model_lock = threading.Lock()
 
 
 def _get_model():
-    """Return the NER pipeline, loading it on first call (thread-safe)."""
     global _model
     if _model is None:
         with _model_lock:
@@ -31,28 +28,20 @@ def _get_model():
 
 
 def _run_ner(text: str) -> dict[str, list[str]]:
-    """
-    Run NER synchronously. Called via asyncio.to_thread.
-
-    Returns a dict mapping entity type → list of unique entity strings.
-    Example: {"PERSON": ["Alice Smith"], "ORG": ["Acme Corp"]}
-    """
     if not text:
         return {}
 
     nlp = _get_model()
-    results = nlp(text[:50_000])  # BERT limit: 512 tokens; cap to bound processing time
+    results = nlp(text[:50_000])  # cap to bound processing time; BERT limit is 512 tokens
 
     entities: dict[str, list[str]] = {}
     for ent in results:
         entity_type = ENTITY_TYPE_MAP.get(ent["entity_group"])
         if entity_type is None:
             continue
-
         entity_text = ent["word"].strip()
         if len(entity_text) < 2:
             continue
-
         if entity_type not in entities:
             entities[entity_type] = []
         if entity_text not in entities[entity_type]:
@@ -63,7 +52,6 @@ def _run_ner(text: str) -> dict[str, list[str]]:
 
 class NERService:
     async def extract_entities(self, text: str) -> dict[str, list[str]]:
-        """Extract named entities asynchronously; returns {} for empty text."""
         if not text:
             return {}
         return await asyncio.to_thread(_run_ner, text)

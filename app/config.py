@@ -28,14 +28,13 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expiry_minutes: int = 60
 
-    # Rate limiting (fixed-window, Redis-backed, keyed by client IP)
+    # Rate limiting
     auth_register_rate_limit_requests: int = 5
     auth_register_rate_limit_window: int = 300
     auth_token_rate_limit_requests: int = 10
     auth_token_rate_limit_window: int = 60
 
-    # CORS — restrict to the actual frontend origin(s) in production
-    # Accepts a JSON array in the env var: CORS_ALLOW_ORIGINS='["https://app.example.com"]'
+    # CORS — JSON array in env: CORS_ALLOW_ORIGINS='["https://app.example.com"]'
     cors_allow_origins: list[str] = ["http://localhost:7860"]
 
     # Vector search

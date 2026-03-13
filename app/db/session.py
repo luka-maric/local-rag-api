@@ -20,7 +20,6 @@ AsyncSessionLocal = async_sessionmaker(
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """Yield a database session per request; commit on success, rollback on error."""
     async with AsyncSessionLocal() as session:
         try:
             yield session

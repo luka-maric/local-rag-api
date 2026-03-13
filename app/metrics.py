@@ -1,4 +1,3 @@
-"""Custom Prometheus business metrics for the RAG pipeline."""
 from prometheus_client import Counter, Histogram
 
 documents_uploaded_total = Counter(

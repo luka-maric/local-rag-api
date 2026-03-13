@@ -1,9 +1,3 @@
-"""
-Authentication endpoints.
-
-POST /api/v1/auth/register — create a new tenant and return a JWT
-POST /api/v1/auth/token    — verify credentials and return a JWT
-"""
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select

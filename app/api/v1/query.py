@@ -1,4 +1,3 @@
-"""Vector similarity search endpoint — POST /api/v1/query."""
 import uuid
 
 import structlog
@@ -37,7 +36,6 @@ async def search_documents(
     db: AsyncSession = Depends(get_db),
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
 ) -> QueryResponse:
-    # Embed the query using the same model and Redis cache as ingestion
     vectors = await _embedding_service.embed_texts([request.query])
     query_vector = vectors[0]
 

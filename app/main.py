@@ -46,10 +46,6 @@ def create_app() -> FastAPI:
 
     @app.get("/health", tags=["infrastructure"])
     async def health_check() -> JSONResponse:
-        """
-        Readiness check — probes Postgres and Redis with a 2-second timeout each.
-        Returns 200 when both are reachable, 503 when either is not.
-        """
         checks: dict[str, str] = {}
 
         try:
