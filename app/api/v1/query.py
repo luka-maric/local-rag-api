@@ -2,23 +2,19 @@ import uuid
 
 import structlog
 from fastapi import APIRouter, Depends
-from redis.asyncio import Redis
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.models import DocumentChunk
 from app.db.session import get_db
-from app.dependencies import get_current_tenant_id
+from app.dependencies import get_current_tenant_id, get_embedding_service
 from app.schemas.query import ChunkResult, QueryRequest, QueryResponse
 from app.services.embedding import EmbeddingService
 
 logger = structlog.get_logger()
 
 router = APIRouter(prefix="/query", tags=["query"])
-
-_redis = Redis.from_url(settings.redis_url, decode_responses=False)
-_embedding_service = EmbeddingService(redis=_redis)
 
 
 @router.post(
@@ -35,11 +31,12 @@ async def search_documents(
     request: QueryRequest,
     db: AsyncSession = Depends(get_db),
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+    embedding_service: EmbeddingService = Depends(get_embedding_service),
 ) -> QueryResponse:
-    vectors = await _embedding_service.embed_texts([request.query])
+    vectors = await embedding_service.embed_texts([request.query])
     query_vector = vectors[0]
 
-    await db.execute(text("SET hnsw.ef_search = :val"), {"val": settings.hnsw_ef_search})
+    await db.execute(text(f"SET hnsw.ef_search = {int(settings.hnsw_ef_search)}"))
 
     distance_expr = DocumentChunk.embedding.cosine_distance(query_vector)
 

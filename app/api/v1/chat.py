@@ -5,14 +5,13 @@ from collections.abc import AsyncIterator
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from redis.asyncio import Redis
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.models import ChatMessage, ChatSession, Document, DocumentChunk
 from app.db.session import AsyncSessionLocal, get_db
-from app.dependencies import get_current_tenant_id
+from app.dependencies import get_current_tenant_id, get_embedding_service, get_ollama_service
 from app.schemas.chat import ChatRequest
 from app.services.embedding import EmbeddingService
 from app.services.ollama import OllamaService, OllamaServiceError
@@ -20,13 +19,6 @@ from app.services.ollama import OllamaService, OllamaServiceError
 logger = structlog.get_logger()
 
 router = APIRouter(prefix="/chat", tags=["chat"])
-
-_redis = Redis.from_url(settings.redis_url, decode_responses=False)
-_embedding_service = EmbeddingService(redis=_redis)
-_ollama_service = OllamaService(
-    base_url=settings.ollama_base_url,
-    model=settings.ollama_model,
-)
 
 MAX_HISTORY_MESSAGES = 10
 
@@ -72,6 +64,8 @@ async def chat(
     request: ChatRequest,
     db: AsyncSession = Depends(get_db),
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+    embedding_service: EmbeddingService = Depends(get_embedding_service),
+    ollama_service: OllamaService = Depends(get_ollama_service),
 ) -> StreamingResponse:
     # SSE event types: session | sources | token | error | [DONE]
     if request.session_id is not None:
@@ -94,9 +88,9 @@ async def chat(
     # DESC fetch → reverse to chronological order for the LLM
     history: list[ChatMessage] = list(reversed(history_result.scalars().all()))
 
-    query_vector = await _embedding_service.embed_one(request.message)
+    query_vector = await embedding_service.embed_one(request.message)
 
-    await db.execute(text("SET hnsw.ef_search = :val"), {"val": settings.hnsw_ef_search})
+    await db.execute(text(f"SET hnsw.ef_search = {int(settings.hnsw_ef_search)}"))
 
     chunks_result = await db.execute(
         select(DocumentChunk)
@@ -157,7 +151,7 @@ async def chat(
 
         tokens: list[str] = []
         try:
-            async for token in _ollama_service.stream(messages):
+            async for token in ollama_service.stream(messages):
                 tokens.append(token)
                 yield _sse({"type": "token", "token": token})
         except OllamaServiceError as exc:
