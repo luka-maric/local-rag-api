@@ -6,7 +6,6 @@ from pathlib import Path
 import structlog
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import JSONResponse
-from redis.asyncio import Redis
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,7 +13,7 @@ from app.config import settings
 from app.db.models import Document, DocumentChunk
 from app.db.session import AsyncSessionLocal, get_db
 from app.metrics import document_processing_seconds, documents_processed_total, documents_uploaded_total
-from app.dependencies import get_current_tenant_id
+from app.dependencies import get_current_tenant_id, get_chunking_service, get_embedding_service, get_extraction_service, get_ner_service
 from app.schemas.documents import DocumentListResponse, DocumentResponse, UploadResponse
 from app.services.chunking import ChunkingService
 from app.services.embedding import EmbeddingService
@@ -24,12 +23,6 @@ from app.services.ner import NERService
 logger = structlog.get_logger()
 
 router = APIRouter(prefix="/documents", tags=["documents"])
-
-_redis = Redis.from_url(settings.redis_url, decode_responses=False)
-_extraction_service = ExtractionService()
-_chunking_service = ChunkingService()
-_embedding_service = EmbeddingService(redis=_redis)
-_ner_service = NERService()
 
 # File extension → magic bytes. Extensions without an entry are validated as UTF-8.
 _MAGIC_BYTES: dict[str, bytes] = {
@@ -67,17 +60,21 @@ async def process_document(
     file_bytes: bytes,
     filename: str,
     tenant_id: uuid.UUID,
+    extraction_service: ExtractionService,
+    chunking_service: ChunkingService,
+    embedding_service: EmbeddingService,
+    ner_service: NERService,
 ) -> None:
     async with AsyncSessionLocal() as db:
         try:
             with document_processing_seconds.time():
                 text: str = await asyncio.to_thread(
-                    _extraction_service.extract, file_bytes, filename
+                    extraction_service.extract, file_bytes, filename
                 )
 
-                entities = await _ner_service.extract_entities(text)
-                chunks = _chunking_service.chunk(text)
-                vectors = await _embedding_service.embed_texts([c.text for c in chunks])
+                entities = await ner_service.extract_entities(text)
+                chunks = chunking_service.chunk(text)
+                vectors = await embedding_service.embed_texts([c.text for c in chunks])
 
                 doc = await db.get(Document, document_id)
 
@@ -131,6 +128,10 @@ async def upload_document(
     file: UploadFile = File(..., description="PDF, TXT, PNG, JPG, or JPEG file"),
     db: AsyncSession = Depends(get_db),
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+    extraction_service: ExtractionService = Depends(get_extraction_service),
+    chunking_service: ChunkingService = Depends(get_chunking_service),
+    embedding_service: EmbeddingService = Depends(get_embedding_service),
+    ner_service: NERService = Depends(get_ner_service),
 ) -> UploadResponse:
     file_bytes = await file.read()
 
@@ -183,6 +184,10 @@ async def upload_document(
         file_bytes,
         file.filename or "unknown",
         tenant_id,
+        extraction_service,
+        chunking_service,
+        embedding_service,
+        ner_service,
     )
 
     logger.info(

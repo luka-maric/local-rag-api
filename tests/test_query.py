@@ -1,10 +1,10 @@
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.dependencies import get_current_tenant_id
+from app.dependencies import get_current_tenant_id, get_embedding_service
 from app.db.session import get_db
 from app.main import create_app
 
@@ -38,21 +38,23 @@ def mock_db_session():
 @pytest.fixture
 def app_with_mock_db(mock_db_session):
     app = create_app()
+    mock_embed = MagicMock()
 
     async def _mock_get_db():
         yield mock_db_session
 
     app.dependency_overrides[get_db] = _mock_get_db
     app.dependency_overrides[get_current_tenant_id] = lambda: uuid.UUID(TENANT_ID)
-    yield app, mock_db_session
+    app.dependency_overrides[get_embedding_service] = lambda: mock_embed
+    yield app, mock_db_session, mock_embed
     app.dependency_overrides.clear()
 
 
 @pytest.fixture
 async def client_and_db(app_with_mock_db):
-    app, mock_db = app_with_mock_db
+    app, mock_db, mock_embed = app_with_mock_db
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        yield ac, mock_db
+        yield ac, mock_db, mock_embed
 
 
 def _query_payload(query: str = FAKE_QUERY, top_k: int = 5) -> dict:
@@ -60,9 +62,8 @@ def _query_payload(query: str = FAKE_QUERY, top_k: int = 5) -> dict:
 
 
 @pytest.mark.asyncio
-@patch("app.api.v1.query._embedding_service")
-async def test_query_returns_200(mock_embed, client_and_db):
-    client, mock_db = client_and_db
+async def test_query_returns_200(client_and_db):
+    client, mock_db, mock_embed = client_and_db
     mock_embed.embed_texts = AsyncMock(return_value=[FAKE_QUERY_VECTOR])
 
     chunk = _make_fake_chunk()
@@ -74,9 +75,8 @@ async def test_query_returns_200(mock_embed, client_and_db):
 
 
 @pytest.mark.asyncio
-@patch("app.api.v1.query._embedding_service")
-async def test_query_response_shape(mock_embed, client_and_db):
-    client, mock_db = client_and_db
+async def test_query_response_shape(client_and_db):
+    client, mock_db, mock_embed = client_and_db
     mock_embed.embed_texts = AsyncMock(return_value=[FAKE_QUERY_VECTOR])
 
     chunk = _make_fake_chunk(chunk_index=0)
@@ -91,18 +91,8 @@ async def test_query_response_shape(mock_embed, client_and_db):
 
 
 @pytest.mark.asyncio
-@patch("app.api.v1.query._embedding_service")
-async def test_similarity_score_is_one_minus_distance(mock_embed, client_and_db):
-    """
-    similarity = 1 - cosine_distance.
-
-    pgvector returns a cosine distance (0=identical, 2=opposite).
-    We convert it so callers get an intuitive similarity score:
-      distance 0.0 → similarity 1.0  (perfect match)
-      distance 0.3 → similarity 0.7
-      distance 1.0 → similarity 0.0
-    """
-    client, mock_db = client_and_db
+async def test_similarity_score_is_one_minus_distance(client_and_db):
+    client, mock_db, mock_embed = client_and_db
     mock_embed.embed_texts = AsyncMock(return_value=[FAKE_QUERY_VECTOR])
 
     chunk = _make_fake_chunk()
@@ -115,9 +105,8 @@ async def test_similarity_score_is_one_minus_distance(mock_embed, client_and_db)
 
 
 @pytest.mark.asyncio
-@patch("app.api.v1.query._embedding_service")
-async def test_multiple_results_ordered_by_similarity(mock_embed, client_and_db):
-    client, mock_db = client_and_db
+async def test_multiple_results_ordered_by_similarity(client_and_db):
+    client, mock_db, mock_embed = client_and_db
     mock_embed.embed_texts = AsyncMock(return_value=[FAKE_QUERY_VECTOR])
 
     chunk_a = _make_fake_chunk(chunk_index=0)
@@ -138,9 +127,8 @@ async def test_multiple_results_ordered_by_similarity(mock_embed, client_and_db)
 
 
 @pytest.mark.asyncio
-@patch("app.api.v1.query._embedding_service")
-async def test_chunk_text_and_document_id_in_result(mock_embed, client_and_db):
-    client, mock_db = client_and_db
+async def test_chunk_text_and_document_id_in_result(client_and_db):
+    client, mock_db, mock_embed = client_and_db
     mock_embed.embed_texts = AsyncMock(return_value=[FAKE_QUERY_VECTOR])
 
     doc_id = uuid.uuid4()
@@ -156,9 +144,8 @@ async def test_chunk_text_and_document_id_in_result(mock_embed, client_and_db):
 
 
 @pytest.mark.asyncio
-@patch("app.api.v1.query._embedding_service")
-async def test_no_results_returns_empty_list(mock_embed, client_and_db):
-    client, mock_db = client_and_db
+async def test_no_results_returns_empty_list(client_and_db):
+    client, mock_db, mock_embed = client_and_db
     mock_embed.embed_texts = AsyncMock(return_value=[FAKE_QUERY_VECTOR])
     mock_db.execute = AsyncMock(return_value=_make_db_result([]))
 
@@ -171,9 +158,8 @@ async def test_no_results_returns_empty_list(mock_embed, client_and_db):
 
 
 @pytest.mark.asyncio
-@patch("app.api.v1.query._embedding_service")
-async def test_embed_texts_called_with_query_string(mock_embed, client_and_db):
-    client, mock_db = client_and_db
+async def test_embed_texts_called_with_query_string(client_and_db):
+    client, mock_db, mock_embed = client_and_db
     mock_embed.embed_texts = AsyncMock(return_value=[FAKE_QUERY_VECTOR])
     mock_db.execute = AsyncMock(return_value=_make_db_result([]))
 
@@ -184,7 +170,7 @@ async def test_embed_texts_called_with_query_string(mock_embed, client_and_db):
 
 @pytest.mark.asyncio
 async def test_empty_query_returns_422(client_and_db):
-    client, _ = client_and_db
+    client, *_ = client_and_db
     response = await client.post(
         "/api/v1/query",
         json={"query": "", "top_k": 5},
@@ -194,7 +180,7 @@ async def test_empty_query_returns_422(client_and_db):
 
 @pytest.mark.asyncio
 async def test_top_k_above_max_returns_422(client_and_db):
-    client, _ = client_and_db
+    client, *_ = client_and_db
     response = await client.post(
         "/api/v1/query",
         json={"query": FAKE_QUERY, "top_k": 100},
@@ -204,7 +190,7 @@ async def test_top_k_above_max_returns_422(client_and_db):
 
 @pytest.mark.asyncio
 async def test_top_k_zero_returns_422(client_and_db):
-    client, _ = client_and_db
+    client, *_ = client_and_db
     response = await client.post(
         "/api/v1/query",
         json={"query": FAKE_QUERY, "top_k": 0},
@@ -213,9 +199,8 @@ async def test_top_k_zero_returns_422(client_and_db):
 
 
 @pytest.mark.asyncio
-@patch("app.api.v1.query._embedding_service")
-async def test_ef_search_set_before_vector_query(mock_embed, client_and_db):
-    client, mock_db = client_and_db
+async def test_ef_search_set_before_vector_query(client_and_db):
+    client, mock_db, mock_embed = client_and_db
     mock_embed.embed_texts = AsyncMock(return_value=[FAKE_QUERY_VECTOR])
     mock_db.execute = AsyncMock(return_value=_make_db_result([]))
 

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.dependencies import get_current_tenant_id
+from app.dependencies import get_current_tenant_id, get_embedding_service, get_ollama_service
 from app.db.session import get_db
 from app.main import create_app
 from app.services.ollama import OllamaServiceError
@@ -104,21 +104,25 @@ def save_db():
 @pytest.fixture
 def app_with_mock_db(mock_db):
     app = create_app()
+    mock_embed = MagicMock()
+    mock_ollama = MagicMock()
 
     async def _mock_get_db():
         yield mock_db
 
     app.dependency_overrides[get_db] = _mock_get_db
     app.dependency_overrides[get_current_tenant_id] = lambda: uuid.UUID(TENANT_ID)
-    yield app, mock_db
+    app.dependency_overrides[get_embedding_service] = lambda: mock_embed
+    app.dependency_overrides[get_ollama_service] = lambda: mock_ollama
+    yield app, mock_db, mock_embed, mock_ollama
     app.dependency_overrides.clear()
 
 
 @pytest.fixture
 async def client_and_db(app_with_mock_db):
-    app, mock_db = app_with_mock_db
+    app, mock_db, mock_embed, mock_ollama = app_with_mock_db
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        yield ac, mock_db
+        yield ac, mock_db, mock_embed, mock_ollama
 
 
 def _chat_request(
@@ -133,11 +137,9 @@ def _chat_request(
 
 
 @pytest.mark.asyncio
-@patch("app.api.v1.chat._ollama_service")
-@patch("app.api.v1.chat._embedding_service")
 @patch("app.api.v1.chat.AsyncSessionLocal")
-async def test_chat_returns_200(mock_asl, mock_embed, mock_ollama, client_and_db, save_db):
-    client, mock_db = client_and_db
+async def test_chat_returns_200(mock_asl, client_and_db, save_db):
+    client, mock_db, mock_embed, mock_ollama = client_and_db
     mock_embed.embed_one = AsyncMock(return_value=FAKE_QUERY_VECTOR)
     mock_db.execute = AsyncMock(side_effect=[
         _make_execute_result([]),
@@ -159,11 +161,9 @@ async def test_chat_returns_200(mock_asl, mock_embed, mock_ollama, client_and_db
 
 
 @pytest.mark.asyncio
-@patch("app.api.v1.chat._ollama_service")
-@patch("app.api.v1.chat._embedding_service")
 @patch("app.api.v1.chat.AsyncSessionLocal")
-async def test_chat_first_event_is_session(mock_asl, mock_embed, mock_ollama, client_and_db, save_db):
-    client, mock_db = client_and_db
+async def test_chat_first_event_is_session(mock_asl, client_and_db, save_db):
+    client, mock_db, mock_embed, mock_ollama = client_and_db
     mock_embed.embed_one = AsyncMock(return_value=FAKE_QUERY_VECTOR)
     mock_db.execute = AsyncMock(side_effect=[
         _make_execute_result([]),
@@ -189,11 +189,9 @@ async def test_chat_first_event_is_session(mock_asl, mock_embed, mock_ollama, cl
 
 
 @pytest.mark.asyncio
-@patch("app.api.v1.chat._ollama_service")
-@patch("app.api.v1.chat._embedding_service")
 @patch("app.api.v1.chat.AsyncSessionLocal")
-async def test_chat_last_event_is_done(mock_asl, mock_embed, mock_ollama, client_and_db, save_db):
-    client, mock_db = client_and_db
+async def test_chat_last_event_is_done(mock_asl, client_and_db, save_db):
+    client, mock_db, mock_embed, mock_ollama = client_and_db
     mock_embed.embed_one = AsyncMock(return_value=FAKE_QUERY_VECTOR)
     mock_db.execute = AsyncMock(side_effect=[
         _make_execute_result([]),
@@ -215,11 +213,9 @@ async def test_chat_last_event_is_done(mock_asl, mock_embed, mock_ollama, client
 
 
 @pytest.mark.asyncio
-@patch("app.api.v1.chat._ollama_service")
-@patch("app.api.v1.chat._embedding_service")
 @patch("app.api.v1.chat.AsyncSessionLocal")
-async def test_chat_streams_token_events(mock_asl, mock_embed, mock_ollama, client_and_db, save_db):
-    client, mock_db = client_and_db
+async def test_chat_streams_token_events(mock_asl, client_and_db, save_db):
+    client, mock_db, mock_embed, mock_ollama = client_and_db
     mock_embed.embed_one = AsyncMock(return_value=FAKE_QUERY_VECTOR)
     mock_db.execute = AsyncMock(side_effect=[
         _make_execute_result([]),
@@ -246,11 +242,9 @@ async def test_chat_streams_token_events(mock_asl, mock_embed, mock_ollama, clie
 
 
 @pytest.mark.asyncio
-@patch("app.api.v1.chat._ollama_service")
-@patch("app.api.v1.chat._embedding_service")
 @patch("app.api.v1.chat.AsyncSessionLocal")
-async def test_chat_loads_existing_session(mock_asl, mock_embed, mock_ollama, client_and_db, save_db):
-    client, mock_db = client_and_db
+async def test_chat_loads_existing_session(mock_asl, client_and_db, save_db):
+    client, mock_db, mock_embed, mock_ollama = client_and_db
     fake_session = _make_fake_session(session_id=SESSION_ID)
     mock_db.get = AsyncMock(return_value=fake_session)
 
@@ -282,7 +276,7 @@ async def test_chat_wrong_tenant_session_returns_404(client_and_db):
     If session_id belongs to a different tenant, return 404.
     Same reasoning as document management: 404 leaks nothing; 403 confirms existence.
     """
-    client, mock_db = client_and_db
+    client, mock_db, mock_embed, mock_ollama = client_and_db
     other_tenant = str(uuid.uuid4())
     fake_session = _make_fake_session(session_id=SESSION_ID, tenant_id=other_tenant)
     mock_db.get = AsyncMock(return_value=fake_session)
@@ -294,7 +288,7 @@ async def test_chat_wrong_tenant_session_returns_404(client_and_db):
 
 @pytest.mark.asyncio
 async def test_chat_nonexistent_session_returns_404(client_and_db):
-    client, mock_db = client_and_db
+    client, mock_db, mock_embed, mock_ollama = client_and_db
     mock_db.get = AsyncMock(return_value=None)
 
     response = await client.post("/api/v1/chat", **_chat_request(session_id=SESSION_ID))
@@ -303,10 +297,8 @@ async def test_chat_nonexistent_session_returns_404(client_and_db):
 
 
 @pytest.mark.asyncio
-@patch("app.api.v1.chat._ollama_service")
-@patch("app.api.v1.chat._embedding_service")
 @patch("app.api.v1.chat.AsyncSessionLocal")
-async def test_chat_includes_history_in_ollama_call(mock_asl, mock_embed, mock_ollama, client_and_db, save_db):
+async def test_chat_includes_history_in_ollama_call(mock_asl, client_and_db, save_db):
     """
     Previous conversation turns must be in the messages list passed to Ollama.
     Order: [system, ...history_chronological..., current_user_message].
@@ -314,7 +306,7 @@ async def test_chat_includes_history_in_ollama_call(mock_asl, mock_embed, mock_o
     Mock returns messages in DESC order (newest first) — what real Postgres gives.
     The endpoint then reverses this to get chronological order for the LLM.
     """
-    client, mock_db = client_and_db
+    client, mock_db, mock_embed, mock_ollama = client_and_db
     fake_session = _make_fake_session(session_id=SESSION_ID)
     mock_db.get = AsyncMock(return_value=fake_session)
 
@@ -352,11 +344,9 @@ async def test_chat_includes_history_in_ollama_call(mock_asl, mock_embed, mock_o
 
 
 @pytest.mark.asyncio
-@patch("app.api.v1.chat._ollama_service")
-@patch("app.api.v1.chat._embedding_service")
 @patch("app.api.v1.chat.AsyncSessionLocal")
-async def test_chat_injects_chunks_into_system_prompt(mock_asl, mock_embed, mock_ollama, client_and_db, save_db):
-    client, mock_db = client_and_db
+async def test_chat_injects_chunks_into_system_prompt(mock_asl, client_and_db, save_db):
+    client, mock_db, mock_embed, mock_ollama = client_and_db
     fake_session = _make_fake_session(session_id=SESSION_ID)
     mock_db.get = AsyncMock(return_value=fake_session)
 
@@ -386,11 +376,9 @@ async def test_chat_injects_chunks_into_system_prompt(mock_asl, mock_embed, mock
 
 
 @pytest.mark.asyncio
-@patch("app.api.v1.chat._ollama_service")
-@patch("app.api.v1.chat._embedding_service")
 @patch("app.api.v1.chat.AsyncSessionLocal")
-async def test_chat_no_chunks_uses_fallback_system_prompt(mock_asl, mock_embed, mock_ollama, client_and_db, save_db):
-    client, mock_db = client_and_db
+async def test_chat_no_chunks_uses_fallback_system_prompt(mock_asl, client_and_db, save_db):
+    client, mock_db, mock_embed, mock_ollama = client_and_db
     fake_session = _make_fake_session(session_id=SESSION_ID)
     mock_db.get = AsyncMock(return_value=fake_session)
 
@@ -417,11 +405,9 @@ async def test_chat_no_chunks_uses_fallback_system_prompt(mock_asl, mock_embed, 
 
 
 @pytest.mark.asyncio
-@patch("app.api.v1.chat._ollama_service")
-@patch("app.api.v1.chat._embedding_service")
 @patch("app.api.v1.chat.AsyncSessionLocal")
-async def test_chat_stores_user_message_before_streaming(mock_asl, mock_embed, mock_ollama, client_and_db, save_db):
-    client, mock_db = client_and_db
+async def test_chat_stores_user_message_before_streaming(mock_asl, client_and_db, save_db):
+    client, mock_db, mock_embed, mock_ollama = client_and_db
     fake_session = _make_fake_session(session_id=SESSION_ID)
     mock_db.get = AsyncMock(return_value=fake_session)
 
@@ -446,11 +432,9 @@ async def test_chat_stores_user_message_before_streaming(mock_asl, mock_embed, m
 
 
 @pytest.mark.asyncio
-@patch("app.api.v1.chat._ollama_service")
-@patch("app.api.v1.chat._embedding_service")
 @patch("app.api.v1.chat.AsyncSessionLocal")
-async def test_chat_stores_assistant_message_after_streaming(mock_asl, mock_embed, mock_ollama, client_and_db, save_db):
-    client, mock_db = client_and_db
+async def test_chat_stores_assistant_message_after_streaming(mock_asl, client_and_db, save_db):
+    client, mock_db, mock_embed, mock_ollama = client_and_db
     fake_session = _make_fake_session(session_id=SESSION_ID)
     mock_db.get = AsyncMock(return_value=fake_session)
 
@@ -479,11 +463,9 @@ async def test_chat_stores_assistant_message_after_streaming(mock_asl, mock_embe
 
 
 @pytest.mark.asyncio
-@patch("app.api.v1.chat._ollama_service")
-@patch("app.api.v1.chat._embedding_service")
 @patch("app.api.v1.chat.AsyncSessionLocal")
-async def test_chat_ollama_error_emits_error_event(mock_asl, mock_embed, mock_ollama, client_and_db, save_db):
-    client, mock_db = client_and_db
+async def test_chat_ollama_error_emits_error_event(mock_asl, client_and_db, save_db):
+    client, mock_db, mock_embed, mock_ollama = client_and_db
     fake_session = _make_fake_session(session_id=SESSION_ID)
     mock_db.get = AsyncMock(return_value=fake_session)
 
@@ -512,7 +494,7 @@ async def test_chat_ollama_error_emits_error_event(mock_asl, mock_embed, mock_ol
 
 @pytest.mark.asyncio
 async def test_chat_empty_message_returns_422(client_and_db):
-    client, _ = client_and_db
+    client, *_ = client_and_db
     response = await client.post(
         "/api/v1/chat",
         json={"message": ""},
@@ -522,7 +504,7 @@ async def test_chat_empty_message_returns_422(client_and_db):
 
 @pytest.mark.asyncio
 async def test_chat_top_k_zero_returns_422(client_and_db):
-    client, _ = client_and_db
+    client, *_ = client_and_db
     response = await client.post(
         "/api/v1/chat",
         json={"message": "Hello", "top_k": 0},
@@ -531,11 +513,9 @@ async def test_chat_top_k_zero_returns_422(client_and_db):
 
 
 @pytest.mark.asyncio
-@patch("app.api.v1.chat._ollama_service")
-@patch("app.api.v1.chat._embedding_service")
 @patch("app.api.v1.chat.AsyncSessionLocal")
-async def test_ef_search_set_before_vector_query(mock_asl, mock_embed, mock_ollama, client_and_db, save_db):
-    client, mock_db = client_and_db
+async def test_ef_search_set_before_vector_query(mock_asl, client_and_db, save_db):
+    client, mock_db, mock_embed, mock_ollama = client_and_db
     mock_embed.embed_one = AsyncMock(return_value=FAKE_QUERY_VECTOR)
     mock_db.execute = AsyncMock(side_effect=[
         _make_execute_result([]),

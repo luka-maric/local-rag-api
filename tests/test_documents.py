@@ -260,19 +260,20 @@ async def test_process_document_happy_path(mock_async_session_local):
     ctx, mock_session, fake_doc = mock_async_session_local
     fake_chunks = _make_fake_chunks(2)
 
-    with (
-        patch("app.api.v1.documents.AsyncSessionLocal", return_value=ctx),
-        patch("app.api.v1.documents._extraction_service") as mock_ext,
-        patch("app.api.v1.documents._ner_service") as mock_ner,
-        patch("app.api.v1.documents._chunking_service") as mock_chunk,
-        patch("app.api.v1.documents._embedding_service") as mock_embed,
-    ):
-        mock_ext.extract.return_value = "extracted text"
-        mock_ner.extract_entities = AsyncMock(return_value={"PERSON": ["Test Person"]})
-        mock_chunk.chunk.return_value = fake_chunks
-        mock_embed.embed_texts = AsyncMock(return_value=FAKE_VECTORS)
+    mock_ext = MagicMock()
+    mock_ext.extract.return_value = "extracted text"
+    mock_ner = MagicMock()
+    mock_ner.extract_entities = AsyncMock(return_value={"PERSON": ["Test Person"]})
+    mock_chunk = MagicMock()
+    mock_chunk.chunk.return_value = fake_chunks
+    mock_embed = MagicMock()
+    mock_embed.embed_texts = AsyncMock(return_value=FAKE_VECTORS)
 
-        await process_document(uuid.uuid4(), FAKE_FILE_BYTES, FAKE_FILENAME, uuid.uuid4())
+    with patch("app.api.v1.documents.AsyncSessionLocal", return_value=ctx):
+        await process_document(
+            uuid.uuid4(), FAKE_FILE_BYTES, FAKE_FILENAME, uuid.uuid4(),
+            mock_ext, mock_chunk, mock_embed, mock_ner,
+        )
 
     mock_session.add_all.assert_called_once()
     stored_chunks = mock_session.add_all.call_args.args[0]
@@ -286,20 +287,14 @@ async def test_process_document_happy_path(mock_async_session_local):
 async def test_process_document_rollback_on_error(mock_async_session_local):
     ctx, mock_session, _ = mock_async_session_local
 
-    with (
-        patch("app.api.v1.documents.AsyncSessionLocal", return_value=ctx),
-        patch("app.api.v1.documents._extraction_service") as mock_ext,
-        patch("app.api.v1.documents._ner_service"),
-        patch("app.api.v1.documents._chunking_service"),
-        patch("app.api.v1.documents._embedding_service"),
-    ):
-        mock_ext.extract.side_effect = RuntimeError("extraction failed")
+    mock_ext = MagicMock()
+    mock_ext.extract.side_effect = RuntimeError("extraction failed")
 
-        doc_id = uuid.uuid4()
-        tenant_id = uuid.uuid4()
-
-        # Must not raise
-        await process_document(doc_id, FAKE_FILE_BYTES, FAKE_FILENAME, tenant_id)
+    with patch("app.api.v1.documents.AsyncSessionLocal", return_value=ctx):
+        await process_document(
+            uuid.uuid4(), FAKE_FILE_BYTES, FAKE_FILENAME, uuid.uuid4(),
+            mock_ext, MagicMock(), MagicMock(), MagicMock(),
+        )
 
     mock_session.rollback.assert_called_once()
     mock_session.commit.assert_not_called()
@@ -309,16 +304,14 @@ async def test_process_document_rollback_on_error(mock_async_session_local):
 async def test_process_document_does_not_raise_on_any_exception(mock_async_session_local):
     ctx, mock_session, _ = mock_async_session_local
 
-    with (
-        patch("app.api.v1.documents.AsyncSessionLocal", return_value=ctx),
-        patch("app.api.v1.documents._extraction_service") as mock_ext,
-        patch("app.api.v1.documents._ner_service"),
-        patch("app.api.v1.documents._chunking_service"),
-        patch("app.api.v1.documents._embedding_service"),
-    ):
-        mock_ext.extract.side_effect = MemoryError("out of memory")
+    mock_ext = MagicMock()
+    mock_ext.extract.side_effect = MemoryError("out of memory")
 
-        await process_document(uuid.uuid4(), FAKE_FILE_BYTES, FAKE_FILENAME, uuid.uuid4())
+    with patch("app.api.v1.documents.AsyncSessionLocal", return_value=ctx):
+        await process_document(
+            uuid.uuid4(), FAKE_FILE_BYTES, FAKE_FILENAME, uuid.uuid4(),
+            mock_ext, MagicMock(), MagicMock(), MagicMock(),
+        )
 
 
 FAKE_CREATED_AT = datetime(2026, 3, 7, 12, 0, 0, tzinfo=timezone.utc)
