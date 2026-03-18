@@ -17,18 +17,25 @@ from app.services.ollama import OllamaService
 security = HTTPBearer()
 
 
-async def get_current_tenant_id(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-) -> uuid.UUID:
-    try:
-        return decode_access_token(credentials.credentials)
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid or expired token.")
-
-
 @lru_cache
 def get_redis() -> Redis:
     return Redis.from_url(settings.redis_url, decode_responses=False)
+
+
+async def get_current_tenant_id(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    redis: Redis = Depends(get_redis),
+) -> uuid.UUID:
+    try:
+        payload = decode_access_token(credentials.credentials)
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired token.")
+
+    jti = payload.get("jti")
+    if jti and await redis.get(f"blocklist:{jti}"):
+        raise HTTPException(status_code=401, detail="Token has been revoked.")
+
+    return uuid.UUID(payload["sub"])
 
 
 @lru_cache

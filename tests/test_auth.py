@@ -9,6 +9,7 @@ from jose import jwt
 from app.api.v1.auth import _register_limiter, _token_limiter
 from app.config import settings
 from app.db.session import get_db
+from app.dependencies import get_redis
 from app.main import create_app
 from app.services.auth import create_access_token, hash_password
 
@@ -19,8 +20,11 @@ def _make_app_with_db(mock_db):
     async def _mock_get_db():
         yield mock_db
 
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=None)  # no tokens blocklisted by default
+
     app.dependency_overrides[get_db] = _mock_get_db
-    # Bypass rate limiters — auth tests don't need a live Redis.
+    app.dependency_overrides[get_redis] = lambda: mock_redis
     app.dependency_overrides[_register_limiter] = lambda: None
     app.dependency_overrides[_token_limiter] = lambda: None
     return app
@@ -277,3 +281,44 @@ async def test_no_authorization_header_returns_401():
         response = await client.get("/api/v1/documents/")
 
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_logout_returns_204():
+    token = create_access_token(uuid.uuid4())
+
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=None)
+    mock_redis.setex = AsyncMock()
+
+    app = _make_app_with_db(_no_tenant_db())
+    app.dependency_overrides[get_redis] = lambda: mock_redis
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/v1/auth/logout",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert response.status_code == 204
+    mock_redis.setex.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_revoked_token_returns_401():
+    token = create_access_token(uuid.uuid4())
+
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=b"1")  # every jti is "revoked"
+
+    app = _make_app_with_db(_documents_list_db())
+    app.dependency_overrides[get_redis] = lambda: mock_redis
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get(
+            "/api/v1/documents/",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Token has been revoked."

@@ -1,13 +1,19 @@
+from datetime import datetime, timezone
+
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
+from jose import JWTError
+from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.models import Tenant
 from app.db.session import get_db
+from app.dependencies import get_redis, security
 from app.schemas.auth import RegisterRequest, TokenRequest, TokenResponse
-from app.services.auth import create_access_token, hash_password, verify_password
+from app.services.auth import create_access_token, decode_access_token, hash_password, verify_password
 from app.services.rate_limit import RateLimiter
 
 logger = structlog.get_logger()
@@ -93,3 +99,18 @@ async def token(
         tenant_id=existing.id,
         expires_in=settings.jwt_expiry_minutes * 60,
     )
+
+
+@router.post("/logout", status_code=204, summary="Revoke the current access token")
+async def logout(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    redis: Redis = Depends(get_redis),
+) -> None:
+    try:
+        payload = decode_access_token(credentials.credentials)
+        jti = payload["jti"]
+        ttl = max(1, payload["exp"] - int(datetime.now(timezone.utc).timestamp()))
+        await redis.setex(f"blocklist:{jti}", ttl, "1")
+        logger.info("token_revoked", jti=jti)
+    except (JWTError, KeyError):
+        pass  # expired or old-format token — nothing to revoke
