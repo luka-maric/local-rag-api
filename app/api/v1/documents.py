@@ -13,7 +13,7 @@ from app.config import settings
 from app.db.models import Document, DocumentChunk
 from app.db.session import AsyncSessionLocal, get_db
 from app.metrics import document_processing_seconds, documents_processed_total, documents_uploaded_total
-from app.dependencies import get_current_tenant_id, get_chunking_service, get_embedding_service, get_extraction_service, get_ner_service
+from app.dependencies import get_chunking_service, get_current_tenant_id, get_embedding_service, get_extraction_service, get_ner_service, require_scope
 from app.schemas.documents import DocumentListResponse, DocumentResponse, UploadResponse
 from app.services.chunking import ChunkingService
 from app.services.embedding import EmbeddingService
@@ -128,6 +128,7 @@ async def upload_document(
     file: UploadFile = File(..., description="PDF, TXT, PNG, JPG, or JPEG file"),
     db: AsyncSession = Depends(get_db),
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+    _: None = Depends(require_scope("write")),
     extraction_service: ExtractionService = Depends(get_extraction_service),
     chunking_service: ChunkingService = Depends(get_chunking_service),
     embedding_service: EmbeddingService = Depends(get_embedding_service),
@@ -301,6 +302,7 @@ async def delete_document(
     document_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+    _: None = Depends(require_scope("write")),
 ) -> None:
     doc = await db.get(Document, document_id)
 

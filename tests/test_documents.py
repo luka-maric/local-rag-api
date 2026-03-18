@@ -8,7 +8,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.api.v1.documents import process_document
-from app.dependencies import get_current_tenant_id
+from app.dependencies import get_current_tenant_id, require_scope
 from app.db.session import get_db
 from app.main import create_app
 from app.services.chunking import TextChunk
@@ -53,6 +53,7 @@ def app_with_mock_db(mock_db_session):
 
     app.dependency_overrides[get_db] = _mock_get_db
     app.dependency_overrides[get_current_tenant_id] = lambda: uuid.UUID(TENANT_ID)
+    app.dependency_overrides[require_scope("write")] = lambda: None
     yield app, mock_db_session
     app.dependency_overrides.clear()
 
@@ -531,3 +532,53 @@ async def test_list_documents_pagination_defaults(client_and_db):
     body = response.json()
     assert body["page"] == 1
     assert body["page_size"] == 10
+
+
+@pytest.mark.asyncio
+async def test_read_scope_token_cannot_upload(app_with_mock_db):
+    from app.dependencies import get_redis
+    from app.services.auth import create_access_token
+
+    app, _ = app_with_mock_db
+    # Remove the scope bypass so require_scope runs for real
+    del app.dependency_overrides[require_scope("write")]
+
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=None)
+    app.dependency_overrides[get_redis] = lambda: mock_redis
+
+    token = create_access_token(uuid.UUID(TENANT_ID), scope="read")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post(
+            "/api/v1/documents/upload",
+            files={"file": ("test.txt", io.BytesIO(FAKE_FILE_BYTES), "text/plain")},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert response.status_code == 403
+    assert "write" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_write_scope_token_can_upload(app_with_mock_db):
+    from app.dependencies import get_redis
+    from app.services.auth import create_access_token
+
+    app, _ = app_with_mock_db
+    del app.dependency_overrides[require_scope("write")]
+
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=None)
+    app.dependency_overrides[get_redis] = lambda: mock_redis
+
+    token = create_access_token(uuid.UUID(TENANT_ID), scope="write")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post(
+            "/api/v1/documents/upload",
+            files={"file": ("test.txt", io.BytesIO(FAKE_FILE_BYTES), "text/plain")},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert response.status_code in (200, 202)

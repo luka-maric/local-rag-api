@@ -284,6 +284,14 @@ async def test_no_authorization_header_returns_401():
 
 
 @pytest.mark.asyncio
+async def test_token_contains_write_scope():
+    tenant_id = uuid.uuid4()
+    token = create_access_token(tenant_id)
+    payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+    assert payload["scope"] == "write"
+
+
+@pytest.mark.asyncio
 async def test_logout_returns_204():
     token = create_access_token(uuid.uuid4())
 
