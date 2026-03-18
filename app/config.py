@@ -26,7 +26,8 @@ class Settings(BaseSettings):
     # Auth
     jwt_secret_key: str = "change-this-in-production-use-openssl-rand-hex-32"
     jwt_algorithm: str = "HS256"
-    jwt_expiry_minutes: int = 60
+    jwt_expiry_minutes: int = 15
+    refresh_token_expiry_days: int = 7
 
     # Rate limiting
     auth_register_rate_limit_requests: int = 5

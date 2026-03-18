@@ -13,8 +13,14 @@ class TokenRequest(BaseModel):
     password: str = Field(description="Tenant password")
 
 
+class RefreshRequest(BaseModel):
+    tenant_id: uuid.UUID
+    refresh_token: str
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     tenant_id: uuid.UUID
-    expires_in: int  # seconds until expiry
+    expires_in: int  # seconds until access token expiry
+    refresh_token: str

@@ -1,3 +1,6 @@
+import hashlib
+import hmac
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -31,3 +34,15 @@ def decode_access_token(token: str) -> dict:
         settings.jwt_secret_key,
         algorithms=[settings.jwt_algorithm],
     )
+
+
+def generate_refresh_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def hash_refresh_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def verify_refresh_token(token: str, stored_hash: str) -> bool:
+    return hmac.compare_digest(hash_refresh_token(token), stored_hash)

@@ -11,7 +11,7 @@ from app.config import settings
 from app.db.session import get_db
 from app.dependencies import get_redis
 from app.main import create_app
-from app.services.auth import create_access_token, hash_password
+from app.services.auth import create_access_token, generate_refresh_token, hash_password, hash_refresh_token
 
 
 def _make_app_with_db(mock_db):
@@ -302,6 +302,74 @@ async def test_logout_returns_204():
 
     assert response.status_code == 204
     mock_redis.setex.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_refresh_returns_new_access_token():
+    tenant_id = uuid.uuid4()
+    refresh_token = generate_refresh_token()
+
+    tenant = MagicMock()
+    tenant.id = tenant_id
+    tenant.refresh_token_hash = hash_refresh_token(refresh_token)
+
+    db = AsyncMock()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = tenant
+    db.execute = AsyncMock(return_value=result)
+
+    app = _make_app_with_db(db)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/v1/auth/refresh",
+            json={"tenant_id": str(tenant_id), "refresh_token": refresh_token},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "access_token" in body
+    assert "refresh_token" in body
+    assert body["refresh_token"] != refresh_token  # rotated
+
+
+@pytest.mark.asyncio
+async def test_refresh_invalid_token_returns_401():
+    tenant_id = uuid.uuid4()
+
+    tenant = MagicMock()
+    tenant.id = tenant_id
+    tenant.refresh_token_hash = hash_refresh_token("correct-token")
+
+    db = AsyncMock()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = tenant
+    db.execute = AsyncMock(return_value=result)
+
+    app = _make_app_with_db(db)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/v1/auth/refresh",
+            json={"tenant_id": str(tenant_id), "refresh_token": "wrong-token"},
+        )
+
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_refresh_unknown_tenant_returns_401():
+    db = AsyncMock()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = None
+    db.execute = AsyncMock(return_value=result)
+
+    app = _make_app_with_db(db)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/v1/auth/refresh",
+            json={"tenant_id": str(uuid.uuid4()), "refresh_token": "any-token"},
+        )
+
+    assert response.status_code == 401
 
 
 @pytest.mark.asyncio
