@@ -1,3 +1,4 @@
+import logging
 import uuid
 from functools import lru_cache
 
@@ -14,12 +15,24 @@ from app.services.extraction import ExtractionService
 from app.services.ner import NERService
 from app.services.ollama import OllamaService
 
+logger = logging.getLogger(__name__)
 security = HTTPBearer()
 
 
 @lru_cache
 def get_redis() -> Redis:
     return Redis.from_url(settings.redis_url, decode_responses=False)
+
+
+async def _is_token_revoked(jti: str | None, redis: Redis) -> bool:
+    """Fails open — Redis down means treat token as not revoked."""
+    if not jti:
+        return False
+    try:
+        return bool(await redis.get(f"blocklist:{jti}"))
+    except Exception:
+        logger.warning("Redis blocklist unavailable — skipping revocation check")
+        return False
 
 
 async def get_current_tenant_id(
@@ -31,8 +44,7 @@ async def get_current_tenant_id(
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token.")
 
-    jti = payload.get("jti")
-    if jti and await redis.get(f"blocklist:{jti}"):
+    if await _is_token_revoked(payload.get("jti"), redis):
         raise HTTPException(status_code=401, detail="Token has been revoked.")
 
     return uuid.UUID(payload["sub"])
@@ -49,8 +61,7 @@ def require_scope(required: str):
         except JWTError:
             raise HTTPException(status_code=401, detail="Invalid or expired token.")
 
-        jti = payload.get("jti")
-        if jti and await redis.get(f"blocklist:{jti}"):
+        if await _is_token_revoked(payload.get("jti"), redis):
             raise HTTPException(status_code=401, detail="Token has been revoked.")
 
         if payload.get("scope") != required:

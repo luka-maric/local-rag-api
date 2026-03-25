@@ -93,6 +93,7 @@ async def test_register_returns_201():
     assert body["token_type"] == "bearer"
     assert "tenant_id" in body
     assert "expires_in" in body
+    assert "refresh_token" in body
 
 
 @pytest.mark.asyncio
@@ -168,6 +169,7 @@ async def test_token_returns_200_with_valid_credentials():
     body = response.json()
     assert "access_token" in body
     assert body["token_type"] == "bearer"
+    assert "refresh_token" in body
 
 
 @pytest.mark.asyncio
@@ -398,3 +400,55 @@ async def test_revoked_token_returns_401():
 
     assert response.status_code == 401
     assert response.json()["detail"] == "Token has been revoked."
+
+
+@pytest.mark.asyncio
+async def test_blocklist_redis_down_fails_open():
+    token = create_access_token(uuid.uuid4())
+
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(side_effect=ConnectionError("Redis is down"))
+
+    app = _make_app_with_db(_documents_list_db())
+    app.dependency_overrides[get_redis] = lambda: mock_redis
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get(
+            "/api/v1/documents/",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_read_scope_blocked_on_delete():
+    token = create_access_token(uuid.uuid4(), scope="read")
+
+    app = _make_app_with_db(_no_tenant_db())
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.delete(
+            f"/api/v1/documents/{uuid.uuid4()}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert response.status_code == 403
+    assert "write" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_read_scope_blocked_on_upload():
+    token = create_access_token(uuid.uuid4(), scope="read")
+
+    app = _make_app_with_db(_no_tenant_db())
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/v1/documents/upload",
+            headers={"Authorization": f"Bearer {token}"},
+            files={"file": ("test.txt", b"hello world", "text/plain")},
+        )
+
+    assert response.status_code == 403
+    assert "write" in response.json()["detail"]
