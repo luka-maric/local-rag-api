@@ -1,4 +1,3 @@
-"""Gradio frontend for the RAG Document Q&A API."""
 import json
 import os
 
@@ -53,64 +52,118 @@ def login(name: str, password: str):
         return None, "⚠️ Cannot reach the API — is the server running?"
 
 
+def logout(token: str | None):
+    if not token:
+        return None, "⚠️ Not logged in."
+    try:
+        httpx.post(f"{API_URL}/api/v1/auth/logout", headers=_auth_headers(token), timeout=10)
+    except Exception:
+        pass
+    return None, "✅ Logged out."
+
+
 # ── Documents ─────────────────────────────────────────────────────────────────
 
-def _build_doc_table(token: str | None) -> str:
+def _load_documents(token: str | None) -> tuple[str, dict, list]:
+    """Returns (markdown table, {filename: doc_id} dict, dropdown choices)."""
     if not token:
-        return "_Authenticate to see your documents._"
+        return "_Authenticate to see your documents._", {}, []
     try:
-        r = httpx.get(
-            f"{API_URL}/api/v1/documents/",
-            headers=_auth_headers(token),
-            timeout=10,
-        )
+        r = httpx.get(f"{API_URL}/api/v1/documents/", headers=_auth_headers(token), timeout=10)
         if r.status_code != 200:
-            return f"⚠️ Could not load documents ({r.status_code})"
+            return f"⚠️ Could not load documents ({r.status_code})", {}, []
         data = r.json()
         if data["total"] == 0:
-            return "_No documents uploaded yet._"
+            return "_No documents uploaded yet._", {}, []
+        doc_dict = {doc["filename"]: doc["document_id"] for doc in data["results"]}
         rows = ["| Filename | Status | Chunks |", "|---|---|---|"]
         for doc in data["results"]:
             icon = "✅ ready" if doc["status"] == "ready" else "⏳ processing"
             rows.append(f"| {doc['filename']} | {icon} | {doc['chunk_count']} |")
-        return "\n".join(rows)
+        return "\n".join(rows), doc_dict, list(doc_dict.keys())
     except httpx.ConnectError:
-        return "⚠️ Cannot reach the API."
+        return "⚠️ Cannot reach the API.", {}, []
 
 
-def upload_document(file, token: str | None):
+def upload_documents(files, token: str | None):
     if not token:
-        return "⚠️ Please authenticate first.", gr.update()
-    if file is None:
-        return "⚠️ No file selected.", gr.update()
-    file_path = file.name if hasattr(file, "name") else str(file)
-    filename = os.path.basename(file_path)
+        return "⚠️ Please authenticate first.", *_load_documents(token)
+    if not files:
+        return "⚠️ No files selected.", *_load_documents(token)
+
+    files = files if isinstance(files, list) else [files]
+    results = []
+    for file in files:
+        file_path = file.name if hasattr(file, "name") else str(file)
+        filename = os.path.basename(file_path)
+        try:
+            with open(file_path, "rb") as f:
+                r = httpx.post(
+                    f"{API_URL}/api/v1/documents/upload",
+                    files={"file": (filename, f, "application/octet-stream")},
+                    headers=_auth_headers(token),
+                    timeout=60,
+                )
+            if r.status_code == 202:
+                results.append(f"✅ **{filename}** uploaded")
+            elif r.status_code == 200:
+                results.append(f"ℹ️ **{filename}** already exists")
+            elif r.status_code == 400:
+                results.append(f"⚠️ **{filename}**: {r.json().get('detail', 'Bad request')}")
+            elif r.status_code == 403:
+                return "⚠️ Write scope required to upload.", *_load_documents(token)
+            else:
+                results.append(f"⚠️ **{filename}** failed ({r.status_code})")
+        except httpx.ConnectError:
+            results.append(f"⚠️ **{filename}**: cannot reach API")
+
+    status = "\n".join(results)
+    return status, *_load_documents(token)
+
+
+def delete_document(filename: str | None, docs_state: dict, token: str | None):
+    if not token:
+        return "⚠️ Please authenticate first.", *_load_documents(token)
+    if not filename:
+        return "⚠️ Select a document to delete.", *_load_documents(token)
+    doc_id = docs_state.get(filename)
+    if not doc_id:
+        return "⚠️ Document not found in list — try refreshing.", *_load_documents(token)
     try:
-        with open(file_path, "rb") as f:
-            r = httpx.post(
-                f"{API_URL}/api/v1/documents/upload",
-                files={"file": (filename, f, "application/octet-stream")},
-                headers=_auth_headers(token),
-                timeout=60,
-            )
-        if r.status_code == 202:
-            return f"✅ **{filename}** uploaded — processing in background.", _build_doc_table(token)
-        if r.status_code == 200:
-            return f"ℹ️ **{filename}** already exists — no duplicate stored.", _build_doc_table(token)
-        if r.status_code == 400:
-            return f"⚠️ {r.json().get('detail', 'Bad request')}", gr.update()
-        return f"⚠️ Upload failed ({r.status_code})", gr.update()
+        r = httpx.delete(
+            f"{API_URL}/api/v1/documents/{doc_id}",
+            headers=_auth_headers(token),
+            timeout=10,
+        )
+        if r.status_code == 204:
+            status = f"🗑️ **{filename}** deleted."
+        elif r.status_code == 403:
+            status = "⚠️ Write scope required to delete."
+        elif r.status_code == 404:
+            status = f"⚠️ **{filename}** not found."
+        else:
+            status = f"⚠️ Delete failed ({r.status_code})"
     except httpx.ConnectError:
-        return "⚠️ Cannot reach the API.", gr.update()
+        status = "⚠️ Cannot reach the API."
+    return status, *_load_documents(token)
 
 
-def refresh_documents(token: str | None) -> str:
-    return _build_doc_table(token)
+# ── Models ────────────────────────────────────────────────────────────────────
+
+def fetch_models() -> tuple[list[str], str]:
+    try:
+        r = httpx.get(f"{API_URL}/api/v1/models", timeout=5)
+        if r.status_code == 200:
+            data = r.json()
+            return data["models"], data["default"]
+    except Exception:
+        pass
+    return ["llama3.2:3b"], "llama3.2:3b"
 
 
 # ── Chat ──────────────────────────────────────────────────────────────────────
 
-def chat(message: str, history: list, token: str | None, session_id: str | None):
+def chat(message: str, history: list, token: str | None, session_id: str | None, model: str | None):
     if not message.strip():
         yield history, session_id
         return
@@ -132,6 +185,8 @@ def chat(message: str, history: list, token: str | None, session_id: str | None)
     payload: dict = {"message": message, "top_k": 5}
     if session_id:
         payload["session_id"] = session_id
+    if model:
+        payload["model"] = model
 
     try:
         with httpx.Client(timeout=TIMEOUT) as client:
@@ -148,9 +203,6 @@ def chat(message: str, history: list, token: str | None, session_id: str | None)
                         continue
                     data = line[6:]
                     if data == "[DONE]":
-                        # Append sources + entities footer before breaking so the
-                        # yield stays inside the streaming loop — Gradio 6.x drops
-                        # yields that happen after the loop exits.
                         if sources:
                             seen: set[str] = set()
                             unique_sources = []
@@ -210,9 +262,12 @@ def clear_chat():
 
 # ── Layout ────────────────────────────────────────────────────────────────────
 
+_initial_models, _default_model = fetch_models()
+
 with gr.Blocks(title="RAG Document Q&A") as demo:
     token_state = gr.State(None)
     session_state = gr.State(None)
+    docs_state = gr.State({})  # {filename: doc_id}
 
     gr.Markdown(
         "# RAG Document Q&A\n"
@@ -227,20 +282,32 @@ with gr.Blocks(title="RAG Document Q&A") as demo:
         with gr.Row():
             register_btn = gr.Button("Register")
             login_btn = gr.Button("Login", variant="primary")
+            logout_btn = gr.Button("Logout", variant="stop")
         auth_status = gr.Markdown("")
 
     with gr.Accordion("2 — Documents", open=True):
         file_input = gr.File(
-            label="Upload document",
+            label="Upload documents",
             file_types=[".pdf", ".png", ".jpg", ".jpeg", ".txt"],
+            file_count="multiple",
         )
         with gr.Row():
             upload_btn = gr.Button("Upload", variant="primary")
             refresh_btn = gr.Button("Refresh list")
         upload_status = gr.Markdown("")
         doc_list = gr.Markdown("_Authenticate to see your documents._")
+        with gr.Row():
+            delete_dropdown = gr.Dropdown(label="Select document to delete", choices=[], scale=4)
+            delete_btn = gr.Button("Delete", variant="stop", scale=1)
+        delete_status = gr.Markdown("")
 
     with gr.Accordion("3 — Chat", open=True):
+        model_dropdown = gr.Dropdown(
+            label="Generation model",
+            choices=_initial_models,
+            value=_default_model,
+            scale=1,
+        )
         chatbot = gr.Chatbot(height=450, show_label=False)
         with gr.Row():
             msg_input = gr.Textbox(
@@ -254,39 +321,58 @@ with gr.Blocks(title="RAG Document Q&A") as demo:
 
     # ── Event wiring ──────────────────────────────────────────────────────────
 
+    def _after_auth(token):
+        md, doc_dict, choices = _load_documents(token)
+        return md, doc_dict, gr.update(choices=choices)
+
     register_btn.click(
         fn=register,
         inputs=[name_input, pass_input],
         outputs=[token_state, auth_status],
-    ).then(fn=_build_doc_table, inputs=[token_state], outputs=[doc_list])
+    ).then(fn=_after_auth, inputs=[token_state], outputs=[doc_list, docs_state, delete_dropdown])
 
     login_btn.click(
         fn=login,
         inputs=[name_input, pass_input],
         outputs=[token_state, auth_status],
-    ).then(fn=_build_doc_table, inputs=[token_state], outputs=[doc_list])
+    ).then(fn=_after_auth, inputs=[token_state], outputs=[doc_list, docs_state, delete_dropdown])
+
+    logout_btn.click(
+        fn=logout,
+        inputs=[token_state],
+        outputs=[token_state, auth_status],
+    ).then(
+        fn=lambda: ("_Authenticate to see your documents._", {}, gr.update(choices=[]), [], None),
+        outputs=[doc_list, docs_state, delete_dropdown, chatbot, session_state],
+    )
 
     upload_btn.click(
-        fn=upload_document,
+        fn=upload_documents,
         inputs=[file_input, token_state],
-        outputs=[upload_status, doc_list],
+        outputs=[upload_status, doc_list, docs_state, delete_dropdown],
     )
 
     refresh_btn.click(
-        fn=refresh_documents,
+        fn=_after_auth,
         inputs=[token_state],
-        outputs=[doc_list],
+        outputs=[doc_list, docs_state, delete_dropdown],
+    )
+
+    delete_btn.click(
+        fn=delete_document,
+        inputs=[delete_dropdown, docs_state, token_state],
+        outputs=[delete_status, doc_list, docs_state, delete_dropdown],
     )
 
     send_btn.click(
         fn=chat,
-        inputs=[msg_input, chatbot, token_state, session_state],
+        inputs=[msg_input, chatbot, token_state, session_state, model_dropdown],
         outputs=[chatbot, session_state],
     ).then(fn=lambda: "", outputs=[msg_input])
 
     msg_input.submit(
         fn=chat,
-        inputs=[msg_input, chatbot, token_state, session_state],
+        inputs=[msg_input, chatbot, token_state, session_state, model_dropdown],
         outputs=[chatbot, session_state],
     ).then(fn=lambda: "", outputs=[msg_input])
 

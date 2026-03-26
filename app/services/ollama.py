@@ -18,8 +18,18 @@ class OllamaService:
         self.model = model
         self.timeout = timeout
 
-    async def generate(self, messages: list[dict[str, Any]]) -> str:
-        payload = {"model": self.model, "messages": messages, "stream": False}
+    async def list_models(self) -> list[str]:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(f"{self.base_url}/api/tags")
+            if response.status_code != 200:
+                return [self.model]
+            return [m["name"] for m in response.json().get("models", [])] or [self.model]
+        except Exception:
+            return [self.model]
+
+    async def generate(self, messages: list[dict[str, Any]], model: str | None = None) -> str:
+        payload = {"model": model or self.model, "messages": messages, "stream": False}
 
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -34,12 +44,14 @@ class OllamaService:
         if response.status_code != 200:
             raise OllamaServiceError(f"Ollama returned HTTP {response.status_code}: {response.text}")
 
+        resolved_model = model or self.model
         text: str = response.json()["message"]["content"]
-        logger.info("ollama_generate_complete", model=self.model, output_chars=len(text))
+        logger.info("ollama_generate_complete", model=resolved_model, output_chars=len(text))
         return text
 
-    async def stream(self, messages: list[dict[str, Any]]) -> AsyncIterator[str]:
-        payload = {"model": self.model, "messages": messages, "stream": True}
+    async def stream(self, messages: list[dict[str, Any]], model: str | None = None) -> AsyncIterator[str]:
+        resolved_model = model or self.model
+        payload = {"model": resolved_model, "messages": messages, "stream": True}
 
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -62,7 +74,7 @@ class OllamaService:
                         if chunk.get("done"):
                             break
 
-                    logger.info("ollama_stream_complete", model=self.model, tokens_yielded=token_count)
+                    logger.info("ollama_stream_complete", model=resolved_model, tokens_yielded=token_count)
 
         except httpx.ConnectError as exc:
             raise OllamaServiceError(

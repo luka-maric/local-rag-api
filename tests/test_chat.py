@@ -148,7 +148,7 @@ async def test_chat_returns_200(mock_asl, client_and_db, save_db):
     ])
     mock_asl.return_value = _make_save_db_patch(save_db)
 
-    async def _no_tokens(_):
+    async def _no_tokens(_, model=None):
         return
         yield
 
@@ -172,7 +172,7 @@ async def test_chat_first_event_is_session(mock_asl, client_and_db, save_db):
     ])
     mock_asl.return_value = _make_save_db_patch(save_db)
 
-    async def _no_tokens(_):
+    async def _no_tokens(_, model=None):
         return
         yield
 
@@ -200,7 +200,7 @@ async def test_chat_last_event_is_done(mock_asl, client_and_db, save_db):
     ])
     mock_asl.return_value = _make_save_db_patch(save_db)
 
-    async def _two_tokens(_):
+    async def _two_tokens(_, model=None):
         yield "Hello"
         yield " world"
 
@@ -224,7 +224,7 @@ async def test_chat_streams_token_events(mock_asl, client_and_db, save_db):
     ])
     mock_asl.return_value = _make_save_db_patch(save_db)
 
-    async def _tokens(_):
+    async def _tokens(_, model=None):
         yield "RAG"
         yield " stands"
         yield " for"
@@ -256,7 +256,7 @@ async def test_chat_loads_existing_session(mock_asl, client_and_db, save_db):
     ])
     mock_asl.return_value = _make_save_db_patch(save_db)
 
-    async def _no_tokens(_):
+    async def _no_tokens(_, model=None):
         return
         yield
 
@@ -324,7 +324,7 @@ async def test_chat_includes_history_in_ollama_call(mock_asl, client_and_db, sav
 
     captured_messages = []
 
-    async def _capture(messages):
+    async def _capture(messages, model=None):
         captured_messages.extend(messages)
         yield "answer"
 
@@ -363,7 +363,7 @@ async def test_chat_injects_chunks_into_system_prompt(mock_asl, client_and_db, s
 
     captured_messages = []
 
-    async def _capture(messages):
+    async def _capture(messages, model=None):
         captured_messages.extend(messages)
         yield "answer"
 
@@ -392,7 +392,7 @@ async def test_chat_no_chunks_uses_fallback_system_prompt(mock_asl, client_and_d
 
     captured_messages = []
 
-    async def _capture(messages):
+    async def _capture(messages, model=None):
         captured_messages.extend(messages)
         yield "answer"
 
@@ -419,7 +419,7 @@ async def test_chat_stores_user_message_before_streaming(mock_asl, client_and_db
     mock_embed.embed_one = AsyncMock(return_value=FAKE_QUERY_VECTOR)
     mock_asl.return_value = _make_save_db_patch(save_db)
 
-    async def _no_tokens(_):
+    async def _no_tokens(_, model=None):
         return
         yield
 
@@ -446,7 +446,7 @@ async def test_chat_stores_assistant_message_after_streaming(mock_asl, client_an
     mock_embed.embed_one = AsyncMock(return_value=FAKE_QUERY_VECTOR)
     mock_asl.return_value = _make_save_db_patch(save_db)
 
-    async def _tokens(_):
+    async def _tokens(_, model=None):
         yield "Hello"
         yield " world"
 
@@ -477,7 +477,7 @@ async def test_chat_ollama_error_emits_error_event(mock_asl, client_and_db, save
     mock_embed.embed_one = AsyncMock(return_value=FAKE_QUERY_VECTOR)
     mock_asl.return_value = _make_save_db_patch(save_db)
 
-    async def _error_stream(_):
+    async def _error_stream(_, model=None):
         raise OllamaServiceError("Cannot connect to Ollama")
         yield  # makes this an async generator
 
@@ -524,7 +524,7 @@ async def test_ef_search_set_before_vector_query(mock_asl, client_and_db, save_d
     ])
     mock_asl.return_value = _make_save_db_patch(save_db)
 
-    async def _no_tokens(_):
+    async def _no_tokens(_, model=None):
         return
         yield
 

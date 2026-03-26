@@ -151,7 +151,7 @@ async def chat(
 
         tokens: list[str] = []
         try:
-            async for token in ollama_service.stream(messages):
+            async for token in ollama_service.stream(messages, model=request.model):
                 tokens.append(token)
                 yield _sse({"type": "token", "token": token})
         except OllamaServiceError as exc:
