@@ -5,7 +5,7 @@
 ![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-169%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-174%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
 ---
@@ -19,6 +19,7 @@ Tenants upload PDF or image documents via a REST API. Documents are asynchronous
 ## Features
 
 - **Multi-tenant isolation** — every document, chunk, and chat session is scoped to a JWT-authenticated tenant; cross-tenant data is structurally impossible
+- **JWT auth with refresh tokens** — short-lived access tokens (15 min) plus rotating refresh tokens (7 days); token revocation via Redis blocklist; role-based `read`/`write` scopes enforced on mutating routes
 - **Async ingestion pipeline** — extraction → NER → chunking → embedding runs in a background task; clients receive a stable document ID immediately (202 Accepted)
 - **Hybrid document support** — native text PDFs via PyMuPDF; scanned PDFs and images via Tesseract OCR fallback
 - **Named entity recognition** — `dslim/bert-base-NER` tags PERSON, ORG, LOC, MISC entities at ingest time; stored as JSONB for downstream filtering
@@ -197,14 +198,21 @@ make import-llm GGUF=~/ollama-models/Llama-3.2-3B-Instruct-Q4_K_M.gguf
 make status
 ```
 
-> **HuggingFace models** (~520 MB) download automatically on the first document upload —
-> the CA bundle mount lets the container reach huggingface.co through your proxy.
-> No pre-downloading or `TRANSFORMERS_OFFLINE` flag needed.
+> **HuggingFace models** (~520 MB — `all-MiniLM-L6-v2` + `dslim/bert-base-NER`) download
+> automatically on the first document upload. The corporate overlay handles this in two ways:
+> it mounts your CA bundle so Python's SSL stack can verify the proxy certificate, and it
+> sets `HF_HUB_DISABLE_SSL_VERIFICATION=1` for the HuggingFace Hub client (which uses its
+> own internal SSL handling). Both are applied automatically by `make up-corporate` — you
+> do not need to set any extra variables in `.env`.
 >
-> **GGUF file**: download `Llama-3.2-3B-Instruct-Q4_K_M.gguf` (~1.9 GB) from
-> `huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF` and save it anywhere on the host.
-> Pass that path to `make import-llm GGUF=<path>`. The file only needs to be downloaded
-> once — `make import-llm` copies it into the Docker volume, so it survives restarts.
+> **GGUF file**: the Ollama container cannot use the corporate proxy to pull models, so
+> `make pull-llm` will fail with a certificate error on corporate networks — use
+> `make import-llm` instead. Download `Llama-3.2-3B-Instruct-Q4_K_M.gguf` (~1.9 GB) on a
+> machine with unrestricted internet access (search `bartowski/Llama-3.2-3B-Instruct-GGUF`
+> on HuggingFace), transfer the file to your corporate machine, then run:
+> `make import-llm GGUF=/path/to/Llama-3.2-3B-Instruct-Q4_K_M.gguf`
+> The file is copied into the Docker volume and survives container restarts — you only need
+> to do this once.
 
 ---
 
@@ -220,15 +228,18 @@ make status
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `POST` | `/api/v1/auth/register` | — | Register tenant, receive JWT |
-| `POST` | `/api/v1/auth/token` | — | Authenticate, receive JWT |
-| `POST` | `/api/v1/documents/upload` | JWT | Upload PDF / image (async processing) |
+| `POST` | `/api/v1/auth/register` | — | Register tenant; returns `access_token` + `refresh_token` |
+| `POST` | `/api/v1/auth/token` | — | Authenticate; returns `access_token` + `refresh_token` |
+| `POST` | `/api/v1/auth/refresh` | Refresh token | Exchange refresh token for a new access + refresh pair |
+| `POST` | `/api/v1/auth/logout` | JWT | Revoke current access token (adds jti to blocklist) |
+| `POST` | `/api/v1/documents/upload` | JWT (write) | Upload PDF / image (async processing) |
 | `GET` | `/api/v1/documents/` | JWT | List documents (paginated) |
 | `GET` | `/api/v1/documents/{id}` | JWT | Document detail + processing status |
-| `DELETE` | `/api/v1/documents/{id}` | JWT | Delete document and all chunks |
+| `DELETE` | `/api/v1/documents/{id}` | JWT (write) | Delete document and all chunks |
 | `POST` | `/api/v1/query` | JWT | Semantic search over chunks |
 | `POST` | `/api/v1/chat` | JWT | RAG chat with SSE token streaming |
-| `GET` | `/health` | — | Liveness check |
+| `GET` | `/api/v1/models` | — | List available Ollama models |
+| `GET` | `/health` | — | Liveness check (Postgres + Redis) |
 | `GET` | `/metrics` | — | Prometheus metrics |
 
 Full interactive docs at **`http://localhost:8000/docs`** (Swagger UI) once the stack is running.
@@ -236,7 +247,7 @@ Full interactive docs at **`http://localhost:8000/docs`** (Swagger UI) once the 
 ### Example flow
 
 ```bash
-# 1. Register and capture the token
+# 1. Register and capture the access token (response also contains refresh_token)
 TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/register \
   -H "Content-Type: application/json" \
   -d '{"name": "acme", "password": "s3cr3tpassword"}' \
@@ -283,7 +294,8 @@ All settings are loaded from environment variables (or `.env`).
 | `REDIS_URL` | `redis://localhost:6379` | Redis connection URL (optional — degrades gracefully) |
 | `JWT_SECRET_KEY` | — | HMAC-SHA256 signing secret (min 32 chars) |
 | `JWT_ALGORITHM` | `HS256` | JWT signing algorithm |
-| `JWT_EXPIRY_MINUTES` | `60` | Token lifetime |
+| `JWT_EXPIRY_MINUTES` | `15` | Access token lifetime in minutes |
+| `REFRESH_TOKEN_EXPIRY_DAYS` | `7` | Refresh token lifetime in days; rotated on every `/refresh` call |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama API base URL |
 | `OLLAMA_MODEL` | `llama3.2:3b` | Model name passed to `/api/chat` |
 | `AUTH_REGISTER_RATE_LIMIT_REQUESTS` | `5` | Rate-limit: registrations per window |
@@ -299,7 +311,7 @@ All settings are loaded from environment variables (or `.env`).
 pytest tests/
 ```
 
-169 tests — 161 unit tests with all external I/O mocked, plus 6 integration tests against a real Postgres instance.
+174 tests — 168 unit tests with all external I/O mocked, plus 6 integration tests against a real Postgres instance.
 
 ---
 
@@ -331,7 +343,7 @@ app/
 ├── dependencies.py  # JWT auth dependency
 ├── main.py          # App factory
 └── metrics.py       # Prometheus custom metrics
-tests/               # 169 tests (161 unit + 6 integration)
+tests/               # 174 tests (168 unit + 6 integration)
 ui/                  # Gradio frontend (app.py + Dockerfile)
 alembic/             # Database migration history
 monitoring/          # Prometheus config and Grafana provisioned dashboards
