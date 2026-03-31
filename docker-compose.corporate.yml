@@ -22,5 +22,6 @@ services:
       # through a TLS-intercepting corporate proxy.
       REQUESTS_CA_BUNDLE: /etc/ssl/certs/corporate-ca.pem
       SSL_CERT_FILE: /etc/ssl/certs/corporate-ca.pem
+      HF_HUB_DISABLE_SSL_VERIFICATION: "1"
     volumes:
       - ${SYSTEM_CA_BUNDLE}:/etc/ssl/certs/corporate-ca.pem:ro
